@@ -12,6 +12,7 @@ from breakdown.dissociation_time_chart import DissociationTimeChart
 from breakdown.isomer_dicts import IsomerDicts
 from breakdown.elemental_stability_chart import checkElementalDissociation
 from breakdown.event_survival_chart import EVENT_NAMES, FIRST_EVENTS_HEADING, EventSurvivalChart
+from breakdown.run_settings import SETTINGS_HEADING, collectSettings, parseSettings
 from breakdown.run_summary import getElementalIntactSeries, saveSummary
 
 @lru_cache(maxsize=None)
@@ -89,6 +90,11 @@ class GenerateChartsStats:
                                                   timePerStepFs=timePerStepFs,
                                                   heteroatoms=[e for e in moleculeElements if e not in ('C', 'H')])
         self.timePerStepFs = timePerStepFs
+        self.statisticsOptions = {'chart_name': chartName, 'molecule_name': moleculeName, 'num_carbons': numCarbons,
+                                  'elements': list(moleculeElements), 'func_group': functionalGroup,
+                                  'legend_carbons': legendCarbons, 'time_per_step_fs': timePerStepFs,
+                                  'draw': drawIsomers, 'coordinates': makeCoordinates}
+        self.runSettings = []
         self.drawIsomers = drawIsomers
         self.makeCoordinates = makeCoordinates
         self.functionalGroup = functionalGroup
@@ -110,6 +116,7 @@ class GenerateChartsStats:
             logString = self.addLogToCharts(logName)
             if logString is not None:
                 logStrings.append(logString + '\n\n')
+                self.runSettings.append(parseSettings(logString))
         self.allLogString = ''.join(logStrings)
 
         self.addStatsToString()
@@ -175,6 +182,8 @@ class GenerateChartsStats:
             ]
         blocks.append((FIRST_EVENTS_HEADING, 'firstEvents'))
         self.sections = {}
+        self.settings = collectSettings(self.runSettings, self.statisticsOptions)
+        self.reportSettings()
         for heading, attribute in blocks:
             if attribute == 'isomerNames':
                 text = isomerDicts.getIsomerNames()
@@ -182,6 +191,20 @@ class GenerateChartsStats:
                 text = isomerDicts.getFormattedStats(attribute)
             self.allLogString += heading + '\n' + text
             self.sections[heading] = json.loads(text)
+        settingsText = json.dumps(self.settings, indent=4) + '\n'
+        self.allLogString += SETTINGS_HEADING + '\n' + settingsText
+        self.sections[SETTINGS_HEADING] = self.settings
+
+    def reportSettings(self):
+        """Warn if the runs were made with different settings or without recorded settings."""
+        settings = self.settings
+        if len(settings['analysis']) > 1:
+            warnings.warn(f"The runs in {self.folder} were analysed with {len(settings['analysis'])} different sets of "
+                          'settings (bond distances, minimum lifetime), the statistics mix them. See the settings '
+                          'block in full_log.txt.')
+        if settings['runsWithoutRecordedSettings']:
+            warnings.warn(f"{settings['runsWithoutRecordedSettings']} logs have no recorded settings "
+                          '(made by an older version).')
 
     def saveSummary(self):
         """Save run_summary.json, which the comparison commands read instead of the huge full_log.txt."""
@@ -192,6 +215,7 @@ class GenerateChartsStats:
             'timePerStepFs': self.timePerStepFs,
             'numRuns': len(self.isomerDicts.runs),
             'sections': self.sections,
+            'settings': self.settings,
             'firstEvents': self.sections[FIRST_EVENTS_HEADING],
             'elementalIntact': getElementalIntactSeries(self.isomerDicts.runs, trackedElements,
                                                         checkElementalDissociation),

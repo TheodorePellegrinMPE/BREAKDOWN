@@ -46,10 +46,12 @@ def test_charts_and_stats_ignore_full_log(tmp_path):
         AutoDetectIsomerization(str(tmp_path), makeRun(tmp_path, f'run_{i}.mol', leaves)).autoAnalyseFile()
     args = (str(tmp_path), 'toy', 'TOY', 2, ['C', 'H', 'S'], 'thiol', False, False)
     GenerateChartsStats(*args).autoAnalyseInFolder()
+    def withoutDate(path):
+        return [line for line in open(path).read().splitlines() if '"created"' not in line]
     firstFull = open(tmp_path / 'full_log.txt').read()
     # A second run must not read full_log.txt as if it were a run
     GenerateChartsStats(*args).autoAnalyseInFolder()
-    assert open(tmp_path / 'full_log.txt').read() == firstFull
+    assert withoutDate(tmp_path / 'full_log.txt') == [line for line in firstFull.splitlines() if '"created"' not in line]
     assert firstFull.count('In file:') == 3
     assert (tmp_path / 'plots' / 'toy_dissociation.pdf').exists()
 
@@ -84,3 +86,25 @@ def test_isomer_dicts_from_log_text():
 
 def test_formula_ignores_bracket_hydrogens():
     assert processSmileToFragment('[H]C1[SH]C1') == 'C2HS'
+
+
+def test_settings_are_recorded_and_checked(tmp_path):
+    import json
+    import warnings
+    from breakdown.run_settings import parseSettings
+    for i in range(2):
+        AutoDetectIsomerization(str(tmp_path), makeRun(tmp_path, f'run_{i}.mol', 10),
+                                breakDistance=2.5 + 0.5 * i).autoAnalyseFile()
+    text = open(tmp_path / 'run_0_log.txt').read()
+    assert text.splitlines()[1].startswith('Settings: ')
+    settings = parseSettings(text)
+    assert settings['break_distance'] == 2.5 and settings['formation_distance'] == 1.63
+    assert settings['elements'] == ['C', 'H', 'S'] and settings['min_lifetime'] == 1
+    args = (str(tmp_path), 'toy', 'TOY', 2, ['C', 'H', 'S'], None, False, False)
+    with pytest.warns(UserWarning, match='different sets of settings'):
+        GenerateChartsStats(*args).autoAnalyseInFolder()
+    summary = json.load(open(tmp_path / 'run_summary.json'))
+    assert summary['settings']['analysisConsistent'] is False
+    assert len(summary['settings']['analysis']) == 2
+    assert summary['settings']['statistics']['time_per_step_fs'] == 5.0
+    assert 'Settings used for these results.' in open(tmp_path / 'full_log.txt').read()

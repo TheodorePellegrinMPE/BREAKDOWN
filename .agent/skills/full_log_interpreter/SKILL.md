@@ -46,6 +46,7 @@ separator *between* runs other than the `In file:` header that starts each one.
 
 ```
 In file: <filename>.mol                      ← run header
+Settings: {"break_distance": 2.5, ...}       ← one json line with the settings of the analysis (newer versions only)
 At step 0:               <smiles>            ← first step, no event
 At step 1:               <smiles>
 At step 2: Isomerization <smiles>            ← molecule changed (same # of fragments)
@@ -64,6 +65,8 @@ Blank lines may appear between run blocks.
 
 #### `In file:` line
 - Format: `In file: <filename>.mol `  (trailing space present)
+- Newer versions write a line `Settings: {json}` right under it: formation_distance, break_distance, min_lifetime, molecule_size,
+  elements and the program version. It does not start with `At step`, so line based parsers can ignore it.
 - Marks the beginning of a new simulation run.
 
 #### `At step` lines
@@ -146,6 +149,7 @@ strings as delimiters):
 | 10 (optional) | `Runs containing original functional group <group> at step.` | `{ "<step_int>": <int>, ... }` |
 | 11 (optional) | `Runs with each <heteroatom> in each final group and/or fragment.` | `{ "<desc>": <int>, ... }` |
 | 12 | `First step of each event type in each run.` | `{ "<file>.mol": {"isomerization": <step or null>, "fragmentation": ..., "recombination": ..., "anyChange": ..., "lastStep": <int>} }` (newer versions only) |
+| 13 | `Settings used for these results.` | `{ "program": {version, git commit, rdkit, python}, "analysis": [distinct settings of the runs], "analysisConsistent": bool, "runsWithoutRecordedSettings": int, "statistics": {options of makechartsandstats}, "created": date }` (newer versions only, last block) |
 
 > Blocks 10 and 11 only exist when `functionalGroup` was set during analysis.
 

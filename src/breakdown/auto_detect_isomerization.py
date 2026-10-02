@@ -3,6 +3,7 @@ import os
 import warnings
 import numpy as np
 from breakdown.bond_adder import BondAdder
+from breakdown.run_settings import formatSettingsLine, getVersionInfo
 from breakdown.create_smiles_from_dataframe import analyseTrajectory
 from breakdown.auto_detect_utils import countLetters, processSmileToFragment
 
@@ -49,7 +50,11 @@ class AutoDetectIsomerization:
         saveFile = os.path.join(self.folder, saveName)
         fileString = self.processFile(file)
         fragmentsString = self.getFragments(fileString)
-        stringToSave = f'In file: {self.fileName} \n' + fileString + fragmentsString
+        settings = {'formation_distance': self.formationDistance, 'break_distance': self.breakDistance,
+                    'min_lifetime': self.minLifetime, 'molecule_size': self.moleculeSize,
+                    'elements': self.moleculeElements, 'breakdown': getVersionInfo()['breakdown']}
+        stringToSave = (f'In file: {self.fileName} \n' + formatSettingsLine(settings) + '\n' +
+                        fileString + fragmentsString)
         self.saveStringAsFile(stringToSave, saveFile)
         return saveFile
 

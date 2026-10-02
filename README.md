@@ -20,7 +20,7 @@ Contents: [Background](#1-background-what-you-need-to-know) · [Install](#2-inst
 [Input files](#3-what-you-need-input-files) · [Quick start](#4-quick-start-tutorial) ·
 [Understanding the output](#5-understanding-the-output) · [Command reference](#6-command-reference) ·
 [Settings that matter](#7-settings-that-matter) · [Troubleshooting](#8-troubleshooting) ·
-[Glossary](#9-glossary) · [For developers](#10-for-developers)
+[Glossary](#9-glossary) · [For developers](#10-for-developers) · [Cluster scripts](#11-running-many-simulations-on-a-cluster)
 
 ---
 
@@ -217,6 +217,7 @@ The block `Automatically generated molecule names.` translates names back to SMI
 | Runs containing original functional group ... at step | Only with `-f`: for each step, in how many runs the group is still there. |
 | Runs with each oxygen/sulfur in each final group and/or fragment | Only with `-f`: where the heteroatom ended up. `other` means none of the tracked groups. |
 | First step of each event type in each run | For every run, the first step of an isomerization, fragmentation, recombination and of any change, and the last step. `null` means it never happened. |
+| Settings used for these results | The last block: the version of the program, the settings the runs were analysed with (bond distances, minimum lifetime, elements) and the options of `makechartsandstats`. See [section 11](#11-running-many-simulations-on-a-cluster). |
 
 ### The plots in `plots/`
 
@@ -360,3 +361,43 @@ pytest                                  # unit tests plus synthetic molecules (a
   and which files to touch when adding a functional group, statistic, plot or command. They are written for AI coding agents, but are a good guide for people too.
 - `tools/compare_logs.py new_log.txt reference_log.txt` compares two run logs by event and by bonded graph.
 - Source layout: `src/breakdown/` (one module per job, `main.py` holds only the command line), tests in `tests/`.
+
+---
+
+## 11. Running many simulations on a cluster
+
+A study needs hundreds of simulations (100 runs per molecule and energy). The folder `cluster_helpers/` has plain Python scripts to prepare and
+submit them from your own computer over `ssh`, and to bring back the results. They are optional: BREAKDOWN itself does not need them.
+Everything they need to know (host, paths, number of runs, MD settings, Slurm settings) is in one file: copy `cluster_config.example.py` to
+`cluster_config.py` and edit it. `cluster_config.py` is in `.gitignore`, so your paths and host name are not published.
+Every script accepts `--dry-run` (shows what it would do and changes nothing), `--molecule` and `--ev` (to work on a part of the list), and `--help`.
+
+The scripts are used in this order, all run on your own computer, in the `cluster_helpers/` folder:
+
+| Step | Script | What it does |
+|---|---|---|
+| once | `python setup_cluster.py` | Makes a Python environment on the cluster and installs BREAKDOWN in it (from GitHub; pin a tag in `BREAKDOWN_INSTALL` so results can be reproduced, or use `--local-source` if the cluster cannot reach GitHub). The jobs only *use* this environment, they never install anything, so many jobs at once cannot break it. |
+| optional | `python submit_opt_jobs.py` | Optimizes the start geometry of each molecule with deMon-Nano on your own computer. See the DFTB warning in [section 6](#6-command-reference): it gives a start geometry for the MD, not results. |
+| 1 | `python make_md_inputs.py` | Writes the deMon-Nano input, the Slurm script and `md_settings_<energy>ev.json` (every setting of the runs) for each molecule and energy. The start temperature is computed from the kinetic energy you give. |
+| 2 | `python queue_md_jobs.py` | Uploads them and submits the MD jobs. The job ids are saved in `jobs_<energy>ev.json`. |
+| 3 | `python make_aac_jobs.py` | Writes one analysis Slurm script per molecule and energy. |
+| 4 | `python queue_aas_jobs.py` | Uploads and submits the analysis. It starts when the MD jobs are over (also if some failed). |
+| 5 | `python retrieve_aas_outputs.py` | Checks with Slurm that the analysis finished, then downloads `run_summary.json` and the `plots/`. With `--what` you can also fetch `drawings`, `coordinates`, `logs` or `full_log` (large). |
+
+How it is built, and why:
+
+- **One trajectory per array task** (`--array=1-100%20`: 100 runs, at most 20 at a time). A failed run does not stop the others, and resubmitting skips the runs that already finished
+  (each leaves a `.done_<n>` marker). The MD script stops on errors, works in a scratch folder that is removed afterwards (`$TMPDIR` if the cluster sets it), and judges a run by whether
+  `deMon.out` and `deMon.mol` exist, because deMon-Nano is not known to return a status code you can trust.
+- **One analysis job.** Analysing a trajectory takes about a second, so a single job does `breakdown analysedemonfolder -j 8` and then `breakdown makechartsandstats` with
+  `--draw --coordinates`. **All structures are drawn on purpose**: a rare structure can be an important transition state in the flow charts.
+  The job warns if fewer runs than expected finished, and if some trajectories have an identical first frame (runs that start in the same second may get the same random velocities).
+- **The time per output step** (`--time_per_step_fs`) is computed from the MD time step and the output interval in `cluster_config.py`, so the time axes of the plots are right.
+- **Nothing is hard-coded**: node, times, memory, charge, multiplicity, bond distances and the molecule list are all in `cluster_config.py`. Every `ssh`/`rsync` call stops with a clear message if it
+  fails, and names with spaces or commas are quoted.
+
+**Recorded settings.** To be able to say later how a result was made, BREAKDOWN records its settings in the output. Every run log has a second line `Settings: {...}` with the formation
+distance, break distance, minimum lifetime, number of atoms, elements and program version. `makechartsandstats` collects them, **warns if the runs of one folder were analysed with different
+settings** (their statistics would be mixed), and writes them, with the program version (and git commit if it is run from a git checkout), the options of the statistics step and the date, into
+the last block of `full_log.txt` and into `run_summary.json`. On the cluster side, `md_settings_<energy>ev.json` records the settings of the simulations themselves.
+`breakdown --version` prints the installed version.

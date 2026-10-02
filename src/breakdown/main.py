@@ -13,7 +13,16 @@ from breakdown.oxygen_fate_pie_chart import generateOxygenFates
 from breakdown.run_summary import loadSection
 from breakdown.event_survival_chart import generateEventComparison
 
+def packageVersion():
+    """Installed version of the package, or unknown when it is run from a source folder."""
+    try:
+        from importlib.metadata import version
+        return version('breakdown')
+    except Exception:
+        return 'unknown'
+
 @click.group()
+@click.version_option(version=packageVersion(), prog_name='breakdown')
 def main_group():
     pass
 

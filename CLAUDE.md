@@ -33,6 +33,10 @@ full_log.txt --> makeflowcharts / comparefunctionalgroups / compareelementalstab
 | `run_summary.py`, `event_survival_chart.py` | `run_summary.json` cache next to `full_log.txt` (`loadSection` reads a block from it or streams `full_log.txt`), Kaplan-Meier time-to-first-event statistics and plots |
 | `auto_detect_utils.py` | shared helpers, `EVENT_LABELS`, cached atom counting |
 
+`cluster_helpers/` holds the author's scripts for running many simulations on a cluster (settings in `cluster_config.py`, which is git-ignored; copy
+`cluster_config.example.py`). They are plain scripts with `--dry-run`, see README section 11. Test them with stub `ssh`/`rsync` commands in `PATH`,
+never against the real cluster. Every run log has a `Settings:` line, see `run_settings.py`.
+
 ## Rules that are easy to break
 
 - Log format is an interface: `At step N: <13 char event> <smiles>`, the analysis line directly after an event line,
