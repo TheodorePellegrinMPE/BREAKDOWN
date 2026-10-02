@@ -377,7 +377,7 @@ The scripts are used in this order, all run on your own computer, in the `cluste
 | Step | Script | What it does |
 |---|---|---|
 | once | `python setup_cluster.py` | Makes a Python environment on the cluster and installs BREAKDOWN in it (from GitHub; pin a tag in `BREAKDOWN_INSTALL` so results can be reproduced, or use `--local-source` if the cluster cannot reach GitHub). The jobs only *use* this environment, they never install anything, so many jobs at once cannot break it. |
-| optional | `python submit_opt_jobs.py` | Optimizes the start geometry of each molecule with deMon-Nano on your own computer. See the DFTB warning in [section 6](#6-command-reference): it gives a start geometry for the MD, not results. |
+| optional | `python submit_opt_jobs.py` | Optimizes the start geometry of each molecule with deMon-Nano on your own computer. It gives a start geometry for the MD. |
 | 1 | `python make_md_inputs.py` | Writes the deMon-Nano input, the Slurm script and `md_settings_<energy>ev.json` (every setting of the runs) for each molecule and energy. The start temperature is computed from the kinetic energy you give. |
 | 2 | `python queue_md_jobs.py` | Uploads them and submits the MD jobs. The job ids are saved in `jobs_<energy>ev.json`. |
 | 3 | `python make_aac_jobs.py` | Writes one analysis Slurm script per molecule and energy. |
