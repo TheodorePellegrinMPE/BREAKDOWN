@@ -11,7 +11,6 @@ import subprocess
 from datetime import datetime, timezone
 
 SETTINGS_PREFIX = 'Settings: '
-SETTINGS_HEADING = 'Settings used for these results.'
 
 
 def getVersionInfo():

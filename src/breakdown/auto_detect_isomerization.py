@@ -3,7 +3,8 @@ import os
 import warnings
 import numpy as np
 from breakdown.bond_adder import BondAdder
-from breakdown.run_settings import formatSettingsLine, getVersionInfo
+from breakdown.run_log import formatRunLog, parseRun
+from breakdown.run_settings import getVersionInfo
 from breakdown.create_smiles_from_dataframe import analyseTrajectory
 from breakdown.auto_detect_utils import countLetters, processSmileToFragment
 
@@ -49,12 +50,11 @@ class AutoDetectIsomerization:
         saveName = f'{os.path.splitext(self.fileName)[0]}_log.txt'
         saveFile = os.path.join(self.folder, saveName)
         fileString = self.processFile(file)
-        fragmentsString = self.getFragments(fileString)
+        finalFormulas = self.getFinalFormulas(fileString)
         settings = {'formation_distance': self.formationDistance, 'break_distance': self.breakDistance,
                     'min_lifetime': self.minLifetime, 'molecule_size': self.moleculeSize,
                     'elements': self.moleculeElements, 'breakdown': getVersionInfo()['breakdown']}
-        stringToSave = (f'In file: {self.fileName} \n' + formatSettingsLine(settings) + '\n' +
-                        fileString + fragmentsString)
+        stringToSave = formatRunLog(self.fileName, settings, fileString, finalFormulas)
         self.saveStringAsFile(stringToSave, saveFile)
         return saveFile
 
@@ -182,45 +182,20 @@ class AutoDetectIsomerization:
         with open(saveFile, 'w') as file:
             file.write(stringToSave)
 
-    def getFragments(self, fileString):
-        """Make a string listing all fragments present at the last step of the
-        run in chemical formula format.
+    def getFinalFormulas(self, fileString):
+        """Get the chemical formulas of all fragments present at the last step of the run.
 
         Args:
             fileString (str): String of SMILES and isomerization details for a run.
 
         Returns:
-            str: String readably listing the fragments for the save file.
-        """
-        lastStepLine = self.getLastStepLine(fileString)
-        lastSmiles = lastStepLine.split()[-1]
-        fragmentSmiles = lastSmiles.split('.')
-        fragmentSmiles = sorted(fragmentSmiles,
-                                key=countLetters, reverse=True)
-        fragments = []
-        for smile in fragmentSmiles:
-            fragment = processSmileToFragment(smile, self.moleculeElements)
-            fragments.append(fragment)
-        fragmentsString = 'Final molecules present: ' + ', '.join(fragments)
-        return fragmentsString
-
-    def getLastStepLine(self, fileString):
-        """Gets the last line of the string to start with At step.
-
-        This is done so that getFragments works if the last line is details about
-        isomerization.
-
-        Args:
-            fileString (str): String of SMILES and isomerization details for a run.
-
-        Returns:
-            str: Last line of fileString to start with 'At step'.
+            list: Chemical formulas, largest fragment first.
 
         Raises:
-            ValueError: Raised if there is no such line.
+            ValueError: Raised if no steps were analysed.
         """
-        lines = fileString.split('\n')
-        for line in reversed(lines):
-            if line.startswith('At step'):
-                return line
-        raise ValueError(f'No steps were analysed in {self.fileName}.')
+        steps = parseRun(fileString).steps
+        if not steps:
+            raise ValueError(f'No steps were analysed in {self.fileName}.')
+        fragmentSmiles = sorted(steps[-1].smiles.split('.'), key=countLetters, reverse=True)
+        return [processSmileToFragment(smile, self.moleculeElements) for smile in fragmentSmiles]

@@ -5,6 +5,7 @@ import pytest
 from breakdown.auto_detect_isomerization import AutoDetectIsomerization
 from breakdown.generate_charts_stats import GenerateChartsStats
 from breakdown.isomer_dicts import IsomerDicts
+from breakdown.run_log import parseRuns
 from breakdown.auto_detect_utils import processSmileToFragment, extractToDict
 from conftest import ATOMS, writeMol
 
@@ -73,7 +74,7 @@ def test_isomer_dicts_from_log_text():
            'In file: b.mol \n'
            'At step 0:               [H]CC\n'
            'Final molecules present: C2H\n')
-    dicts = IsomerDicts(log, 'M', '.', 'thioketone', heteroatom='S')
+    dicts = IsomerDicts(parseRuns(log), 'M', '.', 'thioketone', heteroatom='S')
     dicts.createIsomerDicts()
     assert dicts.isomerStats == {'[H]CC': 2, '[H].CC': 2}
     assert dicts.isomerRuns == {'[H]CC': 2, '[H].CC': 1}

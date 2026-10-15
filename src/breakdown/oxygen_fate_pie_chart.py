@@ -1,6 +1,6 @@
 import matplotlib.pyplot as plt
 from breakdown.plot_style import savePdfAndPng, textStyle
-from breakdown.run_summary import loadSection
+from breakdown.run_summary import loadBlock
 
 class OxygenFatePieChart:
     def __init__(self, chartName, saveFolder):
@@ -10,9 +10,7 @@ class OxygenFatePieChart:
 
     def addDataFromFolders(self, folderPaths, abbreviations, groupNames):
         for folder, abbr, group in zip(folderPaths, abbreviations, groupNames):
-            endingStats = loadSection(folder,
-                                      'Runs with each oxygen in each final group and/or fragment.',
-                                      'Runs with each sulfur in each final group and/or fragment.')
+            endingStats = loadBlock(folder, 'endingGroups')
             if endingStats:
                 self.processFateData(abbr, group, endingStats)
             else:

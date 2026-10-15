@@ -1,6 +1,6 @@
 import matplotlib.pyplot as plt
 from breakdown.plot_style import savePdfAndPng, textStyle
-from breakdown.run_summary import loadSection, resolveTimePerStep
+from breakdown.run_summary import loadBlock, resolveTimePerStep
 
 class FunctionalGroupComparisonChart:
     def __init__(self, chartName, saveFolder, timePerStepFs=5.0):
@@ -27,7 +27,7 @@ class FunctionalGroupComparisonChart:
             groupNames (list): The specific functional groups to track for each.
         """
         for folder, abbr, group in zip(folderPaths, abbreviations, groupNames):
-            countDict = loadSection(folder, f'Runs containing original functional group {group} at step.')
+            countDict = loadBlock(folder, 'groupSteps', group=group)
             if countDict:
                 self.processSeries(abbr, group, countDict)
             else:

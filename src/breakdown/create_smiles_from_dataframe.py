@@ -1,10 +1,10 @@
 import numpy as np
 from rdkit import Chem
 from breakdown.isomer_analyser import analyseIsomer
+from breakdown.run_log import BLANK_EVENT, formatStepLine
 
 # Atoms that are drawn double bonded to a carbon when they have no other bond.
 TERMINAL_DOUBLE_BOND_ATOMS = ('O', 'S')
-BLANK_EVENT = ' ' * 13
 MANY_FRAGMENTS_LIMIT = 20
 
 
@@ -40,7 +40,7 @@ def analyseTrajectory(atomTypes, firstAtoms, secondAtoms, bonded, minLifetime=1,
         if checkManyFragments(smiles):
             endCount += 1
         eventString = checkIsomerization(smiles, prevSmiles)
-        reportString = reportSmiles(step, eventString, smiles)
+        reportString = formatStepLine(step, eventString, smiles)
         if eventString.strip():
             if smiles not in analysisCache:
                 analysisCache[smiles] = analyseIsomer(smiles)
@@ -195,19 +195,3 @@ def checkIsomerization(smiles, prevSmiles):
         return 'Recombination'
     return 'Isomerization'
 
-
-def reportSmiles(step, eventString, smiles):
-    """Generate a string containing relevant information about the simulation step,
-    the current molecule's SMILES, and if there was isomerization or fragmentation.
-
-    Args:
-        step (int): The number of steps since the start of the simulation.
-        eventString (str): String, isomerization, fragmentation, recombination or
-            blank, specifying if the molecule changed since the last step.
-        smiles (str): SMILES string representing the molecule at this step.
-
-    Returns:
-        str: Readable string showing information of the molecule at the current step.
-    """
-    reportString = f'At step {step}: {eventString} {smiles}'
-    return reportString

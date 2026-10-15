@@ -32,21 +32,21 @@ class IsomerFragPieChart:
         self.numNotIsomerizedButFragmented = 0
         self.numIsomerizedAndFragmented = 0
 
-    def addNotIsomerizedOrFragmented(self):
-        """Increment the number that were not isomerized or fragmented by one."""
-        self.numNotIsomerizedOrFragmented += 1
+    def addRun(self, run):
+        """Count a run in one of the 4 categories: whether it had an isomerization, and whether it ended in
+        more than one piece. A run that fragments and recombines is not counted as fragmented.
 
-    def addIsomerizedNotFragmented(self):
-        """Increment the number that were only isomerized by one."""
-        self.numIsomerizedNotFragmented += 1
-
-    def addNotIsomerizedButFragmented(self):
-        """Increment the number that were only fragmented by one."""
-        self.numNotIsomerizedButFragmented += 1
-
-    def addIsomerizedAndFragmented(self):
-        """Increment the number that were isomerized and fragmented by one."""
-        self.numIsomerizedAndFragmented += 1
+        Args:
+            run (Run): The run, see run_log.
+        """
+        if run.isomerized and run.fragmentedAtEnd:
+            self.numIsomerizedAndFragmented += 1
+        elif run.isomerized:
+            self.numIsomerizedNotFragmented += 1
+        elif run.fragmentedAtEnd:
+            self.numNotIsomerizedButFragmented += 1
+        else:
+            self.numNotIsomerizedOrFragmented += 1
 
     def createIsomerFragPieChart(self):
         """Creates a double nested pie chart based on the number of molecules

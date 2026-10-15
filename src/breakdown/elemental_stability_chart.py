@@ -3,7 +3,8 @@ import os
 import matplotlib.pyplot as plt
 from rdkit import Chem
 from breakdown.plot_style import savePdfAndPng, textStyle
-from breakdown.run_summary import loadSummary, resolveTimePerStep
+from breakdown.run_log import FULL_LOG_FILE, iterSteps
+from breakdown.run_summary import STATISTICS_START, loadSummary, resolveTimePerStep
 
 
 @lru_cache(maxsize=None)
@@ -77,7 +78,7 @@ class ElementalStabilityChart:
             return {'cIntact': [(s * self.timeStepToPs, intact['C'][str(s)]) for s in steps],
                     'oIntact': [(s * self.timeStepToPs, intact[self.heteroatom][str(s)]) for s in steps]}
 
-        logPath = os.path.join(folder, 'full_log.txt')
+        logPath = os.path.join(folder, FULL_LOG_FILE)
         if not os.path.exists(logPath):
             return None
 
@@ -86,16 +87,11 @@ class ElementalStabilityChart:
         totalRunsAtStep = {}
 
         with open(logPath, 'r', encoding='utf-8') as file:
-            for line in file:
-                if line.startswith('Automatically generated molecule names.'):
-                    break
-                elif line.startswith('At step'):
-                    parts = line.split()
-                    step = int(parts[2][:-1])
-                    cLostNow, hLostNow = checkElementalDissociation(parts[-1], self.heteroatom)
-                    carbonStats[step] = carbonStats.get(step, 0) + int(not cLostNow)
-                    heteroatomStats[step] = heteroatomStats.get(step, 0) + int(not hLostNow)
-                    totalRunsAtStep[step] = totalRunsAtStep.get(step, 0) + 1
+            for step, _, smiles in iterSteps(file, stopAt=STATISTICS_START):
+                cLostNow, hLostNow = checkElementalDissociation(smiles, self.heteroatom)
+                carbonStats[step] = carbonStats.get(step, 0) + int(not cLostNow)
+                heteroatomStats[step] = heteroatomStats.get(step, 0) + int(not hLostNow)
+                totalRunsAtStep[step] = totalRunsAtStep.get(step, 0) + 1
 
         sortedSteps = sorted(totalRunsAtStep.keys())
         cSeries = [(s * self.timeStepToPs, carbonStats[s]) for s in sortedSteps]

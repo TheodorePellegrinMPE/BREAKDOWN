@@ -457,5 +457,6 @@ print(json.dumps(dict(results), indent=2))
 Newer versions write `run_summary.json` next to `full_log.txt`. It holds every statistics block above
 under `sections` (key = heading text, value = the parsed dictionary), plus `firstEvents`, `timePerStepFs`, `numRuns`
 and `elementalIntact`. **Prefer it over `full_log.txt`** when you only need statistics: `json.load` it, or use
-`breakdown.run_summary.loadSection(folder, heading)`, which uses the summary when it is not older than `full_log.txt`
-and otherwise streams `full_log.txt` to the heading. Per-step SMILES are only in the run logs.
+`breakdown.run_summary.loadBlock(folder, key)` (keys and headings in `run_summary.BLOCKS`), which uses the summary
+when it is not older than `full_log.txt` and otherwise streams `full_log.txt` to the heading. To read runs in Python,
+`breakdown.run_log.parseRuns(text)` or `iterSteps(file)` know the format below. Per-step SMILES are only in the run logs.

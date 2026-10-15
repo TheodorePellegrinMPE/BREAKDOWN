@@ -1,33 +1,16 @@
-import json
 import os
-import re
 import warnings
-from functools import lru_cache
-import numpy as np
-from breakdown.auto_detect_utils import classifyRun, countAtoms, countLetters, orderElements
+from breakdown.auto_detect_utils import countAtoms, orderElements
 from breakdown.isomer_frag_pie_chart import IsomerFragPieChart
 from breakdown.fragments_pie_chart import FragmentsPieChart
 from breakdown.fragments_bar_chart import FragmensBarChart
 from breakdown.dissociation_time_chart import DissociationTimeChart
 from breakdown.isomer_dicts import IsomerDicts
 from breakdown.elemental_stability_chart import checkElementalDissociation
-from breakdown.event_survival_chart import EVENT_NAMES, FIRST_EVENTS_HEADING, EventSurvivalChart
-from breakdown.run_settings import SETTINGS_HEADING, collectSettings, parseSettings
-from breakdown.run_summary import getElementalIntactSeries, saveSummary
-
-@lru_cache(maxsize=None)
-def getMajorFragmentCounts(smiles):
-    """Get the numbers of atoms of each element in the largest fragment of a molecule.
-    The largest fragment is the one containing the most atoms.
-
-    Args:
-        smiles (str): SMILES string of the molecule, fragments are separated by periods.
-
-    Returns:
-        dict: Element symbols as keys and atom counts as values.
-    """
-    fragments = sorted(smiles.split('.'), key=countLetters, reverse=True)
-    return countAtoms(fragments[0])
+from breakdown.event_survival_chart import EVENT_NAMES, EventSurvivalChart
+from breakdown.run_log import FULL_LOG_FILE, isComplete, iterSteps, listRunLogs, parseRuns
+from breakdown.run_settings import collectSettings
+from breakdown.run_summary import formatBlocks, getElementalIntactSeries, saveSummary
 
 
 def inferMoleculeFromLogs(folder):
@@ -43,17 +26,14 @@ def inferMoleculeFromLogs(folder):
     Raises:
         ValueError: Raised if no log with a first step is found.
     """
-    logFiles = sorted(file for file in os.listdir(folder)
-                      if file.endswith('_log.txt') and not file.endswith('full_log.txt'))
-    for logName in logFiles:
+    for logName in listRunLogs(folder):
         with open(f'{folder}/{logName}') as file:
-            for line in file:
-                if line.startswith('At step'):
-                    counts = {}
-                    for fragment in line.split()[-1].split('.'):
-                        for element, count in countAtoms(fragment).items():
-                            counts[element] = counts.get(element, 0) + count
-                    return counts.get('C', 0), orderElements(counts)
+            for _, _, smiles in iterSteps(file):
+                counts = {}
+                for fragment in smiles.split('.'):
+                    for element, count in countAtoms(fragment).items():
+                        counts[element] = counts.get(element, 0) + count
+                return counts.get('C', 0), orderElements(counts)
     raise ValueError(f'No _log.txt files with steps found in {folder}.')
 
 
@@ -86,7 +66,6 @@ class GenerateChartsStats:
         self.fragmentPieChart = FragmentsPieChart(chartName, folder)
         self.fragmentBarChart = FragmensBarChart(chartName, folder)
         self.disTimeChart = DissociationTimeChart(chartName, folder, numCarbons, legendCarbons,
-                                                  has_sulfur=self.heteroatom == 'S',
                                                   timePerStepFs=timePerStepFs,
                                                   heteroatoms=[e for e in moleculeElements if e not in ('C', 'H')])
         self.timePerStepFs = timePerStepFs
@@ -94,7 +73,6 @@ class GenerateChartsStats:
                                   'elements': list(moleculeElements), 'func_group': functionalGroup,
                                   'legend_carbons': legendCarbons, 'time_per_step_fs': timePerStepFs,
                                   'draw': drawIsomers, 'coordinates': makeCoordinates}
-        self.runSettings = []
         self.drawIsomers = drawIsomers
         self.makeCoordinates = makeCoordinates
         self.functionalGroup = functionalGroup
@@ -103,44 +81,25 @@ class GenerateChartsStats:
         """Analyses all log.txt files in a folder, outputs information in
         fullLog.txt and plots statistics in 3 plots.
         """
-        saveName = 'full_log.txt'
-        saveFile = f'{self.folder}/{saveName}'
-        
-        logFiles = sorted(file for file in os.listdir(self.folder)
-                          if file.endswith('_log.txt') and not file.endswith('full_log.txt'))
+        saveFile = f'{self.folder}/{FULL_LOG_FILE}'
+        logFiles = listRunLogs(self.folder)
         if not logFiles:
             print(f'No _log.txt files found in {self.folder}.')
             return
         logStrings = []
         for logName in logFiles:
-            logString = self.addLogToCharts(logName)
-            if logString is not None:
+            logString = self.readLogFile(logName)
+            if isComplete(logString):
                 logStrings.append(logString + '\n\n')
-                self.runSettings.append(parseSettings(logString))
+            else:
+                warnings.warn(f'{logName} is incomplete and is ignored.')
         self.allLogString = ''.join(logStrings)
+        self.runs = parseRuns(self.allLogString)
 
         self.addStatsToString()
         self.saveStringAsFile(saveFile)
         self.saveSummary()
         self.createCharts()
-
-    def addLogToCharts(self, logName):
-        """Add log information to charts.
-
-        Args:
-            logName (str): Name of the log file.
-
-        Returns:
-            str or None: Log string, None if the run did not finish and was skipped.
-        """
-        logString = self.readLogFile(logName)
-        if 'Final molecules present: ' not in logString or 'At step' not in logString:
-            warnings.warn(f'{logName} is incomplete and is ignored.')
-            return None
-        self.addToDissociationChart(logString)
-        self.addToIsomerizationCharts(logString)
-        self.addToFragmentationCharts(logString)
-        return logString
 
     def readLogFile(self, logName):
         """Read the content of a log file.
@@ -161,39 +120,13 @@ class GenerateChartsStats:
         the number of transitions between each pair of isomers to the log string. The blocks are
         also kept in self.sections, to be saved in the summary.
         """
-        isomerDicts = self.handleIsomerDicts()
-        self.isomerDicts = isomerDicts
-        heteroatom = 'sulfur' if self.heteroatom == 'S' else 'oxygen'
-        blocks = [
-            ('Automatically generated molecule names.', 'isomerNames'),
-            ('Total number of steps at which an isomer is present.', 'isomerStats'),
-            ('Total number of runs in which an isomer appeared.', 'isomerRuns'),
-            ('Number of runs at which each chemical fragment was present at the end.', 'endFragmentStats'),
-            ('Total number of transitions to an isomer from an isomer.', 'isomerizationStats'),
-            ('Net number of transitions to an isomer from an isomer.', 'netIsomerizationStats'),
-            ('Number of transitions only including fragmentation.', 'fragmentationStats'),
-            ('Chemical names of fragments of this isomerization state.', 'isomerChemicalNames'),
-            ('Molecular masses of different observed isomers.', 'isomerMasses'),
-        ]
-        if self.functionalGroup is not None:
-            blocks += [
-                (f'Runs containing original functional group {self.functionalGroup} at step.', 'groupSteps'),
-                (f'Runs with each {heteroatom} in each final group and/or fragment.', 'endingGroups'),
-            ]
-        blocks.append((FIRST_EVENTS_HEADING, 'firstEvents'))
-        self.sections = {}
-        self.settings = collectSettings(self.runSettings, self.statisticsOptions)
+        self.isomerDicts = self.handleIsomerDicts()
+        self.settings = collectSettings([run.settings for run in self.runs], self.statisticsOptions)
         self.reportSettings()
-        for heading, attribute in blocks:
-            if attribute == 'isomerNames':
-                text = isomerDicts.getIsomerNames()
-            else:
-                text = isomerDicts.getFormattedStats(attribute)
-            self.allLogString += heading + '\n' + text
-            self.sections[heading] = json.loads(text)
-        settingsText = json.dumps(self.settings, indent=4) + '\n'
-        self.allLogString += SETTINGS_HEADING + '\n' + settingsText
-        self.sections[SETTINGS_HEADING] = self.settings
+        self.blocks = self.isomerDicts.getNamedStatistics()
+        self.blocks['settings'] = self.settings
+        text, self.sections = formatBlocks(self.blocks, self.functionalGroup, self.heteroatom)
+        self.allLogString += text
 
     def reportSettings(self):
         """Warn if the runs were made with different settings or without recorded settings."""
@@ -213,18 +146,18 @@ class GenerateChartsStats:
             'molecule': self.moleculeName,
             'heteroatom': self.heteroatom,
             'timePerStepFs': self.timePerStepFs,
-            'numRuns': len(self.isomerDicts.runs),
+            'numRuns': len(self.runs),
             'sections': self.sections,
             'settings': self.settings,
-            'firstEvents': self.sections[FIRST_EVENTS_HEADING],
-            'elementalIntact': getElementalIntactSeries(self.isomerDicts.runs, trackedElements,
+            'firstEvents': self.blocks['firstEvents'],
+            'elementalIntact': getElementalIntactSeries(self.runs, trackedElements,
                                                         checkElementalDissociation),
         }
         saveSummary(self.folder, summary)
 
     def createEventSurvivalChart(self):
         """Plot the time to the first change, isomerization and fragmentation across the runs."""
-        firstEvents = self.sections[FIRST_EVENTS_HEADING]
+        firstEvents = self.blocks['firstEvents']
         chart = EventSurvivalChart(self.chartName, f'{self.folder}/plots')
         for event in ('anyChange', 'isomerization', 'fragmentation'):
             chart.addCurve(EVENT_NAMES[event], firstEvents, event, self.timePerStepFs)
@@ -236,7 +169,7 @@ class GenerateChartsStats:
         Returns:
             IsomerDicts: IsomerDicts object
         """
-        isomerDicts = IsomerDicts(self.allLogString, self.moleculeName, self.folder, self.functionalGroup,
+        isomerDicts = IsomerDicts(self.runs, self.moleculeName, self.folder, self.functionalGroup,
                                   self.heteroatom)
         isomerDicts.createIsomerDicts()
 
@@ -255,82 +188,12 @@ class GenerateChartsStats:
         with open(saveFile, 'w') as file:
             file.write(self.allLogString)
 
-    def addToIsomerizationCharts(self, logString):
-        """Add to isoFragPieChart if a run included isomerization, was fragmented at the
-        end, both or neither. A run that fragments and recombines is not counted as fragmented.
-
-        Args:
-            logString (str): String of SMILES and isomerization details for a run.
-        """
-        isomerized, _, fragmented = classifyRun(logString)
-        if isomerized and fragmented:
-            self.isoFragPieChart.addIsomerizedAndFragmented()
-        elif isomerized:
-            self.isoFragPieChart.addIsomerizedNotFragmented()
-        elif fragmented:
-            self.isoFragPieChart.addNotIsomerizedButFragmented()
-        else:
-            self.isoFragPieChart.addNotIsomerizedOrFragmented()
-
-    def addToFragmentationCharts(self, logString):
-        """Get fragments present at the end of the run and add them to
-        fragmentBarChart and fragmentPieChart.
-
-        Args:
-            logString (str): String of SMILES and isomerization details for a run.
-        """
-        fragments = logString.split('Final molecules present: ')[-1].strip()
-        fragments = fragments.split(', ')
-        self.fragmentBarChart.addFragments(fragments)
-        self.addToFragmentationPieChart(fragments)
-
-    def addToFragmentationPieChart(self, fragments):
-        """Add a fragment to fragmentPieChart based on the fragments list.
-
-        If there is only 1 string in fragments, then the molecule has not
-        fragmented. If there are 3 or more than there are multiple fragments.
-        If there are 2 strings in fragments, the second, smaller fragment is
-        recorded, fragments of C and H or C, H and O are stacked, this may be
-        changed in the future.
-
-        Args:
-            fragments (list): List of strings, for molecules as chemical formulas.
-        """
-        if len(fragments) < 2:
-            self.fragmentPieChart.addFragment('No fragmentation')
-        elif len(fragments) > 2:
-            self.fragmentPieChart.addFragment('Multiple fragments')
-        else:
-            fragment = fragments[1]
-            if re.match(r'^C\d*H\d*O\d*$', fragment):
-                self.fragmentPieChart.addFragment('CmHnOk')
-            elif re.match(r'^C\d*H\d*S\d*$', fragment):
-                self.fragmentPieChart.addFragment('CmHnSk')
-            elif re.match(r'^C\d*H\d*$', fragment) and (fragment != 'C2H2'):
-                self.fragmentPieChart.addFragment('CmHn')
-            else:
-                self.fragmentPieChart.addFragment(fragment)
-
-    def addToDissociationChart(self, logString):
-        """Add dissociation data to the dissociation time chart.
-
-        Args:
-            logString (str): String of SMILES and isomerization details for a run.
-        """
-        carbonCounts = []
-        for line in logString.split('\n'):
-            if line.startswith('At step'):
-                majorFragment = getMajorFragmentCounts(line.split()[-1])
-                numCarbon = majorFragment.get('C', 0)
-                carbonCounts.append(numCarbon)
-                self.disTimeChart.addToHydrogenArray(numCarbon, majorFragment.get('H', 0))
-                for element in self.disTimeChart.heteroatoms:
-                    self.disTimeChart.addToHeteroatomArray(element, numCarbon, majorFragment.get(element, 0))
-        self.disTimeChart.addRun(np.array(carbonCounts))
-
     def createCharts(self):
         """Run method to make and save the plots from each chart object.
         """
+        for run in self.runs:
+            for chart in (self.disTimeChart, self.isoFragPieChart, self.fragmentBarChart, self.fragmentPieChart):
+                chart.addRun(run)
         self.isoFragPieChart.createIsomerFragPieChart()
         self.fragmentBarChart.createFragmentsBarChart()
         self.fragmentPieChart.createFragmentsPieChart()

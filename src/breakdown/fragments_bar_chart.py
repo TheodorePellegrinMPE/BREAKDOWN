@@ -26,15 +26,14 @@ class FragmensBarChart:
         self.chartTitle = fileName.capitalize().replace('26_5', '26.5').replace('_', ' ')
         self.fragmentCounts = {}
 
-    def addFragments(self, fragments):
-        """Increments the value of a fragment type in the fragmentCounts
+    def addRun(self, run):
+        """Increments the value of each fragment present at the end of a run in the fragmentCounts
         dictionary, if the type is not a key yet it is added and set to one.
 
         Args:
-            fragments (list): List of names of fragments present at the last
-                step of an individual simulation.
+            run (Run): The run, see run_log.
         """
-        for fragment in fragments:
+        for fragment in run.final:
             if fragment in self.fragmentCounts:
                 self.fragmentCounts[fragment] += 1
             else:

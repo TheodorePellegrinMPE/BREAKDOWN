@@ -10,6 +10,7 @@ older code has no Recombination label, so those show up as expected event mismat
 """
 import sys
 from rdkit import Chem
+from breakdown.run_log import FINAL_PREFIX, parseRun
 
 
 def connectivity(smiles):
@@ -24,13 +25,11 @@ def connectivity(smiles):
 
 
 def load(path):
-    rows = []
-    for line in open(path):
-        if line.startswith('At step'):
-            parts = line.split()
-            rows.append((parts[2][:-1], parts[3] if len(parts) == 5 else '', parts[-1]))
-        elif line.startswith('Final molecules present'):
-            rows.append(('final', line.strip(), ''))
+    with open(path) as file:
+        run = parseRun(file.read())
+    rows = [(str(step), event, smiles) for step, event, smiles, _ in run.steps]
+    if run.final is not None:
+        rows.append(('final', FINAL_PREFIX + ', '.join(run.final), ''))
     return rows
 
 

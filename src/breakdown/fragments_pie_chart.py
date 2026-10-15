@@ -1,3 +1,4 @@
+import re
 import matplotlib.pyplot as plt
 from breakdown.plot_style import savePdfAndPng, textStyle
 
@@ -25,6 +26,34 @@ class FragmentsPieChart:
         self.folder = folder
         self.chartTitle = fileName.capitalize().replace('26_5', '26.5').replace('_', ' ')
         self.fragmentCounts = {}
+
+    def addRun(self, run):
+        """Count the fragment that a run ended with.
+
+        If there is only 1 formula at the end, then the molecule has not
+        fragmented. If there are 3 or more than there are multiple fragments.
+        If there are 2, the second, smaller fragment is
+        recorded, fragments of C and H or C, H and O are stacked, this may be
+        changed in the future.
+
+        Args:
+            run (Run): The run, see run_log.
+        """
+        fragments = run.final
+        if len(fragments) < 2:
+            self.addFragment('No fragmentation')
+        elif len(fragments) > 2:
+            self.addFragment('Multiple fragments')
+        else:
+            fragment = fragments[1]
+            if re.match(r'^C\d*H\d*O\d*$', fragment):
+                self.addFragment('CmHnOk')
+            elif re.match(r'^C\d*H\d*S\d*$', fragment):
+                self.addFragment('CmHnSk')
+            elif re.match(r'^C\d*H\d*$', fragment) and (fragment != 'C2H2'):
+                self.addFragment('CmHn')
+            else:
+                self.addFragment(fragment)
 
     def addFragment(self, fragType):
         """Increments the value of a fragment type in the fragmentCounts

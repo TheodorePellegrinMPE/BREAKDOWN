@@ -1,4 +1,9 @@
-"""A small json summary that makechartsandstats writes next to full_log.txt.
+"""The statistics blocks of a folder of runs, and the small json summary that makechartsandstats writes next to
+full_log.txt.
+
+full_log.txt is the run logs followed by statistics blocks, each a heading line and a json dictionary. The same
+blocks are kept in run_summary.json under `sections`. This module is the only place that knows the headings:
+the code that makes the statistics and the code that reads them use the keys of BLOCKS.
 
 full_log.txt is often 100 MB. The plotting commands that compare molecules only need the statistics blocks
 at its end and a few per-step counts, so they read this summary instead when it exists, and fall back to
@@ -7,10 +12,77 @@ streaming through full_log.txt when it does not (for logs made by older versions
 import json
 import math
 import os
+from breakdown.run_log import FULL_LOG_FILE
 
 SUMMARY_FILE = 'run_summary.json'
-FULL_LOG_FILE = 'full_log.txt'
 SUMMARY_VERSION = 1
+
+# Heading of every statistics block, in the order they are written. Files made by older versions are found by
+# these headings, so never change their text. {group} is the tracked functional group, {heteroatom} oxygen or sulfur.
+BLOCKS = {
+    'isomerNames': 'Automatically generated molecule names.',
+    'isomerStats': 'Total number of steps at which an isomer is present.',
+    'isomerRuns': 'Total number of runs in which an isomer appeared.',
+    'endFragmentStats': 'Number of runs at which each chemical fragment was present at the end.',
+    'isomerizationStats': 'Total number of transitions to an isomer from an isomer.',
+    'netIsomerizationStats': 'Net number of transitions to an isomer from an isomer.',
+    'fragmentationStats': 'Number of transitions only including fragmentation.',
+    'isomerChemicalNames': 'Chemical names of fragments of this isomerization state.',
+    'isomerMasses': 'Molecular masses of different observed isomers.',
+    'groupSteps': 'Runs containing original functional group {group} at step.',
+    'endingGroups': 'Runs with each {heteroatom} in each final group and/or fragment.',
+    'firstEvents': 'First step of each event type in each run.',
+    'settings': 'Settings used for these results.',
+}
+HETEROATOM_NAMES = {'O': 'oxygen', 'S': 'sulfur'}
+# The first line after the run logs in full_log.txt
+STATISTICS_START = BLOCKS['isomerNames']
+FIRST_EVENTS_HEADING = BLOCKS['firstEvents']
+
+
+def getHeadings(key, group=None, heteroatom=None):
+    """The heading lines a block can have.
+
+    Args:
+        key (str): Key of the block in BLOCKS.
+        group (str, optional): Functional group, needed for groupSteps.
+        heteroatom (str, optional): O or S for endingGroups, both are tried if not given.
+
+    Returns:
+        list: Headings, the one that is written first.
+
+    Raises:
+        ValueError: Raised if the key is unknown or the block needs a group that was not given.
+    """
+    if key not in BLOCKS:
+        raise ValueError(f'Unknown statistics block {key}.')
+    if '{group}' in BLOCKS[key] and group is None:
+        raise ValueError(f'The {key} block needs a functional group.')
+    elements = [heteroatom] if heteroatom else list(HETEROATOM_NAMES)
+    return list(dict.fromkeys(BLOCKS[key].format(group=group, heteroatom=HETEROATOM_NAMES[element])
+                              for element in elements))
+
+
+def formatBlocks(blocks, group=None, heteroatom='O'):
+    """Write statistics as the blocks at the end of full_log.txt.
+
+    Args:
+        blocks (dict): Key of BLOCKS to its dictionary, blocks that are not given are left out.
+        group (str, optional): Functional group, for the heading of groupSteps.
+        heteroatom (str): O or S, for the heading of endingGroups.
+
+    Returns:
+        Tuple[str, dict]: The text, and the sections of the summary (heading to the dictionary as read back from json).
+    """
+    text = ''
+    sections = {}
+    for key in BLOCKS:
+        if key in blocks:
+            heading = getHeadings(key, group, heteroatom)[0]
+            blockText = json.dumps(blocks[key], indent=4) + '\n'
+            text += heading + '\n' + blockText
+            sections[heading] = json.loads(blockText)
+    return text, sections
 
 
 def getSummaryPath(folder):
@@ -77,7 +149,7 @@ def readSectionFromFullLog(folder, heading):
 
 
 def loadSection(folder, *headings):
-    """Get a statistics block of a folder, from the summary if possible.
+    """Get a statistics block of a folder by its heading, from the summary if possible.
 
     Args:
         folder (str): Folder with full_log.txt.
@@ -95,6 +167,21 @@ def loadSection(folder, *headings):
             if section is not None:
                 return section
     return None
+
+
+def loadBlock(folder, key, group=None, heteroatom=None):
+    """Get a statistics block of a folder, from the summary if possible.
+
+    Args:
+        folder (str): Folder with full_log.txt.
+        key (str): Key of the block in BLOCKS.
+        group (str, optional): Functional group, needed for groupSteps.
+        heteroatom (str, optional): O or S for endingGroups, both are tried if not given.
+
+    Returns:
+        dict or None: The block, None if it is not there.
+    """
+    return loadSection(folder, *getHeadings(key, group, heteroatom))
 
 
 def kaplanMeier(times, observed, confidenceZ=1.96):
@@ -168,7 +255,7 @@ def getElementalIntactSeries(runs, elements, checkFunction):
     """Count, at every step, the runs in which each element is not in a fragment away from the parent.
 
     Args:
-        runs (list): Runs as parsed by IsomerDicts.parseRuns.
+        runs (list): Runs as read by run_log.parseRuns.
         elements (list): Element symbols to track, apart from carbon which is always tracked.
         checkFunction (callable): Function(smiles, element) returning
             (carbon in fragment, element in fragment), see checkElementalDissociation.
@@ -179,7 +266,7 @@ def getElementalIntactSeries(runs, elements, checkFunction):
     series = {element: {} for element in ['C'] + list(elements)}
     runsAtStep = {}
     for run in runs:
-        for step, _, smiles, _ in run['steps']:
+        for step, _, smiles, _ in run.steps:
             runsAtStep[step] = runsAtStep.get(step, 0) + 1
             carbonLost = None
             for element in elements or ['O']:

@@ -1,62 +1,28 @@
-import json
 import re
 from collections import Counter
 from breakdown.isomer_drawer import IsomerDrawer
 from breakdown.coordinates_file_maker import CoordinatesFileMaker
-from breakdown.auto_detect_utils import (EVENT_LABELS, calculateNominalMass, countAtoms,
-                                             getFragmentNames, processSmileToFragment)
+from breakdown.auto_detect_utils import calculateNominalMass, countAtoms, getFragmentNames, processSmileToFragment
 
 OXYGEN_GROUPS = ['hydroxyl', 'ketone', 'ketene', 'ether', 'aldehyde', 'carboxyl', 'epoxide']
 SULFUR_GROUPS = ['thiol', 'thioketone', 'thioaldehyde', 'thioether', 'thiirane', 'disulfide']
 
 class IsomerDicts:
-    def __init__(self, allLogString, moleculeName, saveFolder, groupName, heteroatom='O'):
+    def __init__(self, runs, moleculeName, saveFolder, groupName, heteroatom='O'):
         """Initialize IsomerDicts.
 
         Args:
-            allLogString (str): Complete log string.
+            runs (list): The Runs of a folder, see run_log.parseRuns.
             moleculeName (str): Name of the molecule.
             saveFolder (str): Path to folder where files will be saved.
             groupName (str): Molecule functional group to track.
             heteroatom (str): Element of the groups that are tracked at the end, O or S.
         """
-        self.allLogString = allLogString
         self.moleculeName = moleculeName
         self.saveFolder = saveFolder
         self.groupName = groupName
-        self.runs = self.parseRuns(allLogString)
+        self.runs = runs
         self.heteroatom = heteroatom
-
-    @staticmethod
-    def parseRuns(allLogString):
-        """Split the log string into runs, once, so that every statistic can use the result.
-
-        Args:
-            allLogString (str): Complete log string.
-
-        Returns:
-            list: One dictionary per run, with its file name under 'name', the list of its
-            steps as tuples of (step, event, smiles, analysis line) under 'steps', and the
-            list of chemical formulas present at the end under 'final' (None if missing).
-        """
-        runs = []
-        run = None
-        lines = allLogString.splitlines()
-        for index, line in enumerate(lines):
-            if line.startswith('In file'):
-                run = {'name': line.split(': ', 1)[1].strip(), 'steps': [], 'final': None}
-                runs.append(run)
-            elif line.startswith('At step'):
-                if run is None or run['final'] is not None:
-                    run = {'name': f'run_{len(runs) + 1}', 'steps': [], 'final': None}
-                    runs.append(run)
-                parts = line.split()
-                event = parts[3] if len(parts) == 5 and parts[3] in EVENT_LABELS else ''
-                analysis = lines[index + 1] if event and index + 1 < len(lines) else ''
-                run['steps'].append((int(parts[2][:-1]), event, parts[-1], analysis))
-            elif line.startswith('Final molecules present: ') and run is not None:
-                run['final'] = line.split(': ', 1)[1].split(', ')
-        return runs
 
     def createIsomerDicts(self):
         """Create isomer statistics, isomerization statistics, and isomer names."""
@@ -66,7 +32,7 @@ class IsomerDicts:
         self.fragmentationStats = self.createFragmenationStats()
         self.isomerNames = self.createIsomerNames()
         self.isomerRuns = self.createIsomerRunsStats()
-        self.endFragments = self.createEndFragmentsStats()
+        self.endFragmentStats = self.createEndFragmentsStats()
         self.isomerChemicalNames = self.createIsomerChemicalNames()
         self.isomerMasses = self.createIsomerMassDict()
         self.firstEvents = self.createFirstEventStats()
@@ -82,7 +48,7 @@ class IsomerDicts:
             dict: Dictionary with SMILES strings as keys and their
             counts in the file as values.
         """
-        isomerStats = Counter(smiles for run in self.runs for _, _, smiles, _ in run['steps'])
+        isomerStats = Counter(smiles for run in self.runs for _, _, smiles, _ in run.steps)
         isomerStats = dict(sorted(isomerStats.items(), key=lambda item: item[1], reverse=True))
         return isomerStats
 
@@ -97,7 +63,7 @@ class IsomerDicts:
         isomerizationStats = {}
         for run in self.runs:
             lastSmiles = ''
-            for _, event, smiles, _ in run['steps']:
+            for _, event, smiles, _ in run.steps:
                 if event:
                     transitions = isomerizationStats.setdefault(smiles, {})
                     transitions[lastSmiles] = transitions.get(lastSmiles, 0) + 1
@@ -198,16 +164,16 @@ class IsomerDicts:
                 'Recombination': 'recombination'}
         firstEvents = {}
         for run in self.runs:
-            if not run['steps']:
+            if not run.steps:
                 continue
             record = dict.fromkeys(list(keys.values()) + ['anyChange'])
-            for step, event, _, _ in run['steps']:
+            for step, event, _, _ in run.steps:
                 if event:
                     for key in (keys[event], 'anyChange'):
                         if record[key] is None:
                             record[key] = step
-            record['lastStep'] = run['steps'][-1][0]
-            firstEvents[run['name']] = record
+            record['lastStep'] = run.steps[-1][0]
+            firstEvents[run.name] = record
         return firstEvents
 
     def createIsomerRunsStats(self):
@@ -220,7 +186,7 @@ class IsomerDicts:
         """
         isomerRuns = Counter()
         for run in self.runs:
-            isomerRuns.update(dict.fromkeys(smiles for _, _, smiles, _ in run['steps']).keys())
+            isomerRuns.update(dict.fromkeys(smiles for _, _, smiles, _ in run.steps).keys())
         isomerRuns = dict(sorted(isomerRuns.items(), key=lambda item: item[1], reverse=True))
         return isomerRuns
 
@@ -232,8 +198,8 @@ class IsomerDicts:
             dict: Dictionary with fragment names as keys and their counts in the file as values."""
         endFragmentStats = Counter()
         for run in self.runs:
-            if run['final'] is not None:
-                endFragmentStats.update(run['final'])
+            if run.final is not None:
+                endFragmentStats.update(run.final)
         return dict(endFragmentStats)
 
     def createIsomerChemicalNames(self):
@@ -269,28 +235,22 @@ class IsomerDicts:
         massIsomerDict = dict(sorted(massIsomerDict.items(), key=lambda item: item[0], reverse=True))
         return massIsomerDict
 
-    def getIsomerNames(self):
-        """Get isomer names as a formatted string.
+    def getNamedStatistics(self):
+        """Get every statistic for full_log.txt, with SMILES strings replaced by isomer names.
 
         Returns:
-            str: Formatted string of isomer names.
+            dict: Key of the block (see run_summary.BLOCKS) to its dictionary, in the order they are written.
+            groupSteps and endingGroups are only there when a functional group is tracked.
         """
-        isomerNames = json.dumps(self.isomerNames, indent=4) + '\n'
-        return isomerNames
-
-    def getFormattedStats(self, dictionaryName):
-        """Get formatted statistics as a string, with SMILES strings replaced by isomer names.
-
-        Args:
-            dictionaryName (str): Name of the attribute holding the dictionary of statistics.
-
-        Returns:
-            str: Formatted string of the statistics.
-        """
-        names = {'endFragmentStats': 'endFragments'}
-        stats = getattr(self, names.get(dictionaryName, dictionaryName))
-        statsString = json.dumps(self.replaceWithMolNames(stats), indent=4) + '\n'
-        return statsString
+        keys = ['isomerStats', 'isomerRuns', 'endFragmentStats', 'isomerizationStats', 'netIsomerizationStats',
+                'fragmentationStats', 'isomerChemicalNames', 'isomerMasses']
+        if self.groupName is not None:
+            keys += ['groupSteps', 'endingGroups']
+        keys.append('firstEvents')
+        statistics = {'isomerNames': self.isomerNames}
+        for key in keys:
+            statistics[key] = self.replaceWithMolNames(getattr(self, key))
+        return statistics
 
     def replaceWithMolNames(self, stats):
         """Replace SMILES strings that are dictionary keys with isomer names, in the
@@ -366,7 +326,7 @@ class IsomerDicts:
         globalStepStats = {}
         for run in self.runs:
             isPresent = True
-            for step, event, _, analysis in run['steps']:
+            for step, event, _, analysis in run.steps:
                 if event:
                     analysisLine = analysis.lower()
                     if targetPattern.search(analysisLine):
@@ -396,9 +356,9 @@ class IsomerDicts:
         targetGroups = SULFUR_GROUPS if self.heteroatom == 'S' else OXYGEN_GROUPS
         endingStats = {}
         for run in self.runs:
-            if not run['steps']:
+            if not run.steps:
                 continue
-            lastAnalysis = next((analysis for _, event, _, analysis in reversed(run['steps'])
+            lastAnalysis = next((analysis for _, event, _, analysis in reversed(run.steps)
                                  if event), None)
             finalGroups = []
             for group in targetGroups:
@@ -406,7 +366,7 @@ class IsomerDicts:
                 countMatch = re.search(pattern, lastAnalysis or '', re.IGNORECASE)
                 if countMatch:
                     finalGroups.extend([group] * int(countMatch.group(1)))
-            allFeatures = sorted(finalGroups + self.getHeteroatomFragments(run['final'] or []))
+            allFeatures = sorted(finalGroups + self.getHeteroatomFragments(run.final or []))
             if lastAnalysis is None:
                 combinedKey = self.groupName
             elif not allFeatures:

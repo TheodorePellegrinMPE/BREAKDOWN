@@ -4,9 +4,8 @@ import pytest
 from breakdown.auto_detect_isomerization import AutoDetectIsomerization
 from breakdown.generate_charts_stats import GenerateChartsStats
 from breakdown.elemental_stability_chart import ElementalStabilityChart
-from breakdown.event_survival_chart import (FIRST_EVENTS_HEADING, generateEventComparison,
-                                                loadFirstEvents)
-from breakdown.run_summary import (getSurvivalCurve, kaplanMeier, loadSection, loadSummary,
+from breakdown.event_survival_chart import generateEventComparison, loadFirstEvents
+from breakdown.run_summary import (FIRST_EVENTS_HEADING, getSurvivalCurve, kaplanMeier, loadSection, loadSummary,
                                        readSectionFromFullLog)
 from test_pipeline import makeRun
 

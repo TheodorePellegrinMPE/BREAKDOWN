@@ -19,15 +19,17 @@ description: >
 ## Add a statistic to full_log.txt
 1. Compute it in `IsomerDicts` from `self.runs` (parsed once: per run a list of `(step, event, smiles, analysis)` and `final`).
    Do not re-scan `allLogString`.
-2. Call `createX()` in `createIsomerDicts`, add `(heading, 'attr')` to the `blocks` list in
-   `GenerateChartsStats.addStatsToString`. That writes it to `full_log.txt` and to `run_summary.json` (key `sections`).
-   `getFormattedStats` renames SMILES keys to isomer names. Read blocks in consumers with `run_summary.loadSection`.
+2. Call `createX()` in `createIsomerDicts` (store it as `self.x`), add `'x'` to the keys in `IsomerDicts.getNamedStatistics`
+   (which renames SMILES keys to isomer names) and `'x': '<Heading.>'` to `run_summary.BLOCKS` at the place it should be
+   written. That writes it to `full_log.txt` and to `run_summary.json` (key `sections`).
+   Read it in consumers with `run_summary.loadBlock(folder, 'x')`.
    Values must be JSON serialisable, the heading line must end with a period and the JSON must follow on the next lines.
-3. Consumers find blocks by heading text (`loadSection`), so never rename an
-   existing heading. Document the new block in the full log skill.
+3. Older files are found by heading text, so never rename an existing heading
+   (`tests/test_run_log_and_blocks.py` checks them). Document the new block in the full log skill.
 
 ## Add a plot or command
-- Plot class in its own module. Draw inside `with textStyle():` (fonts, file settings, never `rcParams` at import) and finish with
+- Plot class in its own module. A chart of one folder takes the runs with `addRun(run)` (see `run_log.Run`), a comparison
+  chart reads blocks with `loadBlock`. Draw inside `with textStyle():` (fonts, file settings, never `rcParams` at import) and finish with
   `savePdfAndPng(folder, name)` (writes pdf + png, closes the figure). Return the pdf path, or `None` when there is no data.
   Do not redesign the existing charts (nested pie, pies, bar, line plots): the author chose those on purpose, only fix bugs and text sizes.
   Check that labels are given in the same order as the values (the nested pie had two swapped labels). `event_survival_chart.py` shows the
@@ -39,9 +41,9 @@ description: >
   `Automatically generated molecule names.` when only run data is needed (see `elemental_stability_chart.py`).
 
 ## Add an event type
-Add the label (13 characters, same width as `Isomerization`) to `EVENT_LABELS` in `auto_detect_utils.py`, produce it in
-`checkIsomerization`, and check every place that tests for labels: `isomer_dicts.parseRuns` (uses `EVENT_LABELS`),
-`generate_charts_stats.addToIsomerizationCharts`, `auto_detect_utils.classifyRun`, the full log skill.
+Add the label (13 characters, same width as `Isomerization`) to `EVENT_LABELS` in `run_log.py`, produce it in
+`checkIsomerization`, and check the places that test for labels: the `Run` properties in `run_log.py`,
+`IsomerDicts.createFirstEventStats`, the full log skill.
 
 ## Add an element
 `VALENCES` in `molecule_utils.py`, `NOMINAL_MASSES` in `auto_detect_utils.py` (falls back to RDKit isotope masses), formation

@@ -1,10 +1,9 @@
 from breakdown.plot_style import (COLORS, MAX_CURVES_WITH_BANDS, fractionYLimits, mixedLegend, newFigure,
                                       plotStyle, saveFigure, styleFor)
-from breakdown.run_summary import getSurvivalCurve, loadSection, loadSummary
+from breakdown.run_summary import getSurvivalCurve, loadBlock, loadSummary
 
 EVENT_NAMES = {'anyChange': 'Any change', 'isomerization': 'Isomerization',
                'fragmentation': 'Fragmentation', 'recombination': 'Recombination'}
-FIRST_EVENTS_HEADING = 'First step of each event type in each run.'
 
 
 def loadFirstEvents(folder):
@@ -19,7 +18,7 @@ def loadFirstEvents(folder):
     """
     summary = loadSummary(folder)
     timePerStepFs = summary['timePerStepFs'] if summary else None
-    return loadSection(folder, FIRST_EVENTS_HEADING), timePerStepFs
+    return loadBlock(folder, 'firstEvents'), timePerStepFs
 
 
 # Fixed colours for the event types, the same in every figure and in the run outcome chart

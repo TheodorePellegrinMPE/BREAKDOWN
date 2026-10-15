@@ -10,7 +10,7 @@ from breakdown.energies_table import EnergiesTable
 from breakdown.functional_group_comparison import generateComparison
 from breakdown.elemental_stability_chart import generateElementalComparison
 from breakdown.oxygen_fate_pie_chart import generateOxygenFates
-from breakdown.run_summary import loadSection
+from breakdown.run_summary import loadBlock
 from breakdown.event_survival_chart import generateEventComparison
 
 def packageVersion():
@@ -197,14 +197,8 @@ def makeFlowCharts(folder, start_state, num_top_states, num_scattered, max_depth
         direct (bool): Only do the start state and directly connected states.
         states (list): List of states that must be visited.
     """
-    isomerNamesHeading = 'Automatically generated molecule names.'
-    isomerStatsHeading = 'Total number of steps at which an isomer is present.'
-    isomerRunsHeading = 'Total number of runs in which an isomer appeared.'
-    isomerizationStatsHeading = 'Total number of transitions to an isomer from an isomer.'
-    netTransitionsHeading = 'Net number of transitions to an isomer from an isomer.'
-    fragmenationStatsHeading = 'Number of transitions only including fragmentation.'
-    sections = [loadSection(folder, heading) for heading in
-                (isomerNamesHeading, isomerStatsHeading, isomerizationStatsHeading, netTransitionsHeading)]
+    sections = [loadBlock(folder, key) for key in
+                ('isomerNames', 'isomerStats', 'isomerizationStats', 'netIsomerizationStats')]
     if None in sections:
         raise click.ClickException(f'{folder} has no full_log.txt with the needed statistics, '
                                    'run makechartsandstats first.')

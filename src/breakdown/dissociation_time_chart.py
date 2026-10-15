@@ -1,13 +1,28 @@
 from collections import defaultdict
+from functools import lru_cache
 import numpy as np
 import matplotlib.pyplot as plt
 from breakdown.plot_style import rangeFormulaLabel, savePdfAndPng, textStyle
-from breakdown.auto_detect_utils import ensureFolderExists
+from breakdown.auto_detect_utils import countAtoms, countLetters
+
+
+@lru_cache(maxsize=None)
+def getMajorFragmentCounts(smiles):
+    """Get the numbers of atoms of each element in the largest fragment of a molecule.
+    The largest fragment is the one containing the most atoms.
+
+    Args:
+        smiles (str): SMILES string of the molecule, fragments are separated by periods.
+
+    Returns:
+        dict: Element symbols as keys and atom counts as values.
+    """
+    fragments = sorted(smiles.split('.'), key=countLetters, reverse=True)
+    return countAtoms(fragments[0])
 
 
 class DissociationTimeChart:
-    def __init__(self, fileName, folder, initialCarbon, legendCarbons=None, has_sulfur=False,
-                 timePerStepFs=5.0, heteroatoms=None):
+    def __init__(self, fileName, folder, initialCarbon, legendCarbons=None, timePerStepFs=5.0, heteroatoms=None):
         """Constructs all necessary attributes of the DissociationTimeChart object.
 
         Args:
@@ -15,11 +30,9 @@ class DissociationTimeChart:
             folder (str): The name of the folder in which the chart will be saved.
             initialCarbon (int): The initial number of carbon atoms.
             legendCarbons (list, optional): List of integers for carbons to show in legend.
-            has_sulfur (bool, optional): If True, track Sulfur ('S') instead of Oxygen ('O') in the legend,
-                used if heteroatoms is not given.
             timePerStepFs (float): Simulated time between the steps of the runs, in femtoseconds.
                 The default is 0.5 fs time steps with output every 10 steps.
-            heteroatoms (list, optional): Elements other than C and H to show in the legend formulas.
+            heteroatoms (list, optional): Elements other than C and H to show in the legend formulas, O if not given.
         """
         self.fileName = fileName
         self.folder = folder
@@ -27,19 +40,27 @@ class DissociationTimeChart:
         self.initialCarbon = initialCarbon
         self.stepSize = timePerStepFs / 1000
         self.runCarbons = []
-        self.has_sulfur = has_sulfur
-        self.heteroatoms = list(heteroatoms) if heteroatoms else (['S'] if has_sulfur else ['O'])
+        self.heteroatoms = list(heteroatoms) if heteroatoms else ['O']
         # For every number of carbon atoms in the largest fragment, the numbers of H and of the other atoms seen
         self.hydrogenArray = defaultdict(list)
         self.heteroatomArrays = {element: defaultdict(list) for element in self.heteroatoms}
         self.legendCarbons = legendCarbons
 
-    def addRun(self, carbonCounts):
-        """Add the number of carbon atoms in the largest fragment at every step of a run.
+    def addRun(self, run):
+        """Add the number of carbon atoms in the largest fragment at every step of a run, and the numbers of
+        hydrogens and heteroatoms seen in a largest fragment with that many carbons.
 
         Args:
-            carbonCounts (np.ndarray): Number of carbons in the largest fragment at each step.
+            run (Run): The run, see run_log.
         """
+        carbonCounts = []
+        for step in run.steps:
+            majorFragment = getMajorFragmentCounts(step.smiles)
+            numCarbon = majorFragment.get('C', 0)
+            carbonCounts.append(numCarbon)
+            self.addAtomCount(self.hydrogenArray, numCarbon, majorFragment.get('H', 0))
+            for element, arrays in self.heteroatomArrays.items():
+                self.addAtomCount(arrays, numCarbon, majorFragment.get(element, 0))
         self.runCarbons.append(np.asarray(carbonCounts, dtype=int))
 
     def getDissociationArray(self):
@@ -58,34 +79,17 @@ class DissociationTimeChart:
             counts[stepIndices, padded] += 1
         return 100 * counts / len(self.runCarbons)
 
-    def addToHydrogenArray(self, numCarbon, numHydrogen):
-        """Adds a number of hydrogens to the list for a number of carbons in hydrogenArray if that number is not already present.
+    @staticmethod
+    def addAtomCount(arrays, numCarbon, numAtoms):
+        """Adds a number of atoms to the list for a number of carbons if that number is not already present.
 
         Args:
+            arrays (defaultdict): Number of carbons to the list of numbers of atoms seen.
             numCarbon (int): Integer number of carbons.
-            numHydrogen (int): Integer number of hydrogens.
+            numAtoms (int): Integer number of atoms.
         """
-        if not numHydrogen in self.hydrogenArray[numCarbon]:
-            self.hydrogenArray[numCarbon].append(numHydrogen)
-
-    def addToHeteroatomArray(self, element, numCarbon, numAtoms):
-        """Adds a number of atoms of an element to the list for a number of carbons if that number is not already present.
-
-        Args:
-            element (str): Element symbol, one of the heteroatoms of the chart.
-            numCarbon (int): Integer number of carbons.
-            numAtoms (int): Integer number of atoms of the element.
-        """
-        if element in self.heteroatomArrays and numAtoms not in self.heteroatomArrays[element][numCarbon]:
-            self.heteroatomArrays[element][numCarbon].append(numAtoms)
-
-    def addToOxygenArray(self, numCarbon, numOxygen):
-        """Adds a number of oxygens to the list for a number of carbons if that number is not already present."""
-        self.addToHeteroatomArray('O', numCarbon, numOxygen)
-
-    def addToSulfurArray(self, numCarbon, numSulfur):
-        """Adds a number of sulfurs to the list for a number of carbons if that number is not already present."""
-        self.addToHeteroatomArray('S', numCarbon, numSulfur)
+        if numAtoms not in arrays[numCarbon]:
+            arrays[numCarbon].append(numAtoms)
 
     def createDissociationTimeChart(self):
         """Creates a line graph based on the size of parent atom over time.

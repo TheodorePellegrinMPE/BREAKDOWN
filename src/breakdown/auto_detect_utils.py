@@ -5,20 +5,7 @@ from collections import Counter
 from functools import lru_cache
 from rdkit import Chem
 
-EVENT_LABELS = ('Isomerization', 'Fragmentation', 'Recombination')
 NOMINAL_MASSES = {'H': 1, 'C': 12, 'N': 14, 'O': 16, 'S': 32}
-
-
-def isEventLine(line):
-    """Check if a line of a log file reports a change of the molecule.
-
-    Args:
-        line (str): Line from a log file.
-
-    Returns:
-        bool: True if the line is an At step line with isomerization, fragmentation or recombination.
-    """
-    return line.startswith('At step') and any(label in line for label in EVENT_LABELS)
 
 
 @lru_cache(maxsize=None)
@@ -226,28 +213,3 @@ def getFragmentNames(smiles, name):
         isomerNames.append(isomerName)
     return fragments, isomerNames
 
-
-def classifyRun(logString):
-    """Say if a run had an isomerization, and if it ended fragmented.
-
-    A run that loses a hydrogen for a moment and takes it back (fragmentation followed by recombination)
-    is not fragmented, only a run whose last step is in more than one piece is.
-
-    Args:
-        logString (str): Log of one run.
-
-    Returns:
-        Tuple[bool, bool, bool]: Whether the run had any isomerization, whether it ever fragmented,
-        and whether it is fragmented at the end.
-    """
-    isomerized = False
-    everFragmented = False
-    lastSmiles = ''
-    for line in logString.split('\n'):
-        if line.startswith('At step'):
-            parts = line.split()
-            lastSmiles = parts[-1]
-            if len(parts) == 5:
-                isomerized = isomerized or parts[3] == 'Isomerization'
-                everFragmented = everFragmented or parts[3] == 'Fragmentation'
-    return isomerized, everFragmented, '.' in lastSmiles
