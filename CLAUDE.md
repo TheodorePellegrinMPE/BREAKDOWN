@@ -16,6 +16,8 @@ Read `README.md` for the workflow, and the skills in `.agent/skills/` before cha
 ```
 .mol trajectory --analysedemon--> X_log.txt (one per run) --makechartsandstats--> full_log.txt + plots/
 full_log.txt --> makeflowcharts / comparefunctionalgroups / compareelementalstability / plotoxygenfates
+full_log.txt --> makereport (report.html) / matchstates (across folders) / extractframes (+ .mol -> frames/*.xyz)
+breakdown run FOLDER = analysedemonfolder + makechartsandstats + flow charts + makereport, options from breakdown.toml
 ```
 
 | Module | Role |
@@ -33,6 +35,10 @@ full_log.txt --> makeflowcharts / comparefunctionalgroups / compareelementalstab
 | `molecule_transition_graph.py`, `transition_best_path.py` | flow charts (graphviz, needs `dot`) |
 | `run_summary.py`, `event_survival_chart.py` | the statistics blocks (`BLOCKS`: key -> heading), `formatBlocks` writes them, `loadBlock(folder, key)` reads one from `run_summary.json` or streams `full_log.txt`; Kaplan-Meier time-to-first-event statistics and plots |
 | `auto_detect_utils.py` | shared helpers, cached atom counting |
+| `state_keys.py` | connectivity keys (`stateKey`: hash of the bond graph, ignores bond orders/atom order), the `stateKeys` block, `matchStates` across folders (`loadStateKeys` computes keys from `isomerNames` for older results) |
+| `frame_extractor.py` | `extractframes`: MD frames of a state or around a transition from the `.mol` file (step = frame index), bonds re-found with the run's settings and checked against the log |
+| `html_report.py` | `makereport`: single-file `report.html` from the blocks (via `loadBlock`) and `plots/*.png` |
+| `pipeline.py` | `breakdown run`: TOML config (`CONFIG_OPTIONS` is the single list of options and defaults, unknown keys are errors), `analyseFiles` (the parallel analysis also used by `analysedemonfolder`), keeps logs whose recorded settings match |
 
 `cluster_helpers/` holds the author's scripts for running many simulations on a cluster (settings in `cluster_config.py`, which is git-ignored; copy
 `cluster_config.example.py`). They are plain scripts with `--dry-run`, see README section 11. Test them with stub `ssh`/`rsync` commands in `PATH`,

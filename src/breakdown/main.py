@@ -1,7 +1,5 @@
 import click
-import fnmatch
 import os
-from concurrent.futures import ProcessPoolExecutor
 from breakdown.auto_detect_isomerization import AutoDetectIsomerization
 from breakdown.generate_charts_stats import GenerateChartsStats, inferMoleculeFromLogs
 from breakdown.molecule_transition_graph import MoleculeTransitionGraph
@@ -12,6 +10,8 @@ from breakdown.elemental_stability_chart import generateElementalComparison
 from breakdown.oxygen_fate_pie_chart import generateOxygenFates
 from breakdown.run_summary import loadBlock
 from breakdown.event_survival_chart import generateEventComparison
+from breakdown.pipeline import (CONFIG_FILE, ConfigError, analyseFiles, defaultConfig, formatConfig, listMolFiles,
+                                 loadConfig, logPathFor, runPipeline)
 
 def packageVersion():
     """Installed version of the package, or unknown when it is run from a source folder."""
@@ -78,15 +78,6 @@ def analyseDemon(folder, file_name, molecule_size, elements,
     except ValueError as error:
         raise click.ClickException(str(error))
 
-def analyseOneFile(arguments):
-    """Analyse one file, for use by worker processes, returning the name of the file and an error message."""
-    folder, fileName, options = arguments
-    try:
-        AutoDetectIsomerization(folder, fileName, *options).autoAnalyseFile()
-        return fileName, None
-    except Exception as error:
-        return fileName, f'{type(error).__name__}: {error}'
-
 @main_group.command()
 @click.argument("folder")
 @click.option("--jobs", "-j", default=os.cpu_count() or 1, type=int,
@@ -107,24 +98,14 @@ def analyseDemonFolder(folder, jobs, pattern, skip_existing, molecule_size, elem
         pattern (str): Pattern for the names of the files to analyse.
         skip_existing (bool): Skip files that already have a log.
     """
-    fileNames = sorted(name for name in os.listdir(folder)
-                       if fnmatch.fnmatch(name, pattern) and 'keep' not in name)
+    fileNames = listMolFiles(folder, pattern)
     if skip_existing:
-        fileNames = [name for name in fileNames
-                     if not os.path.exists(os.path.join(folder, f'{os.path.splitext(name)[0]}_log.txt'))]
+        fileNames = [name for name in fileNames if not os.path.exists(logPathFor(folder, name))]
     if not fileNames:
         click.echo(f"No files matching {pattern} to analyse in {folder}.")
         return
     options = (molecule_size, list(elements), formation_distance, break_distance, min_lifetime)
-    failures = []
-    with ProcessPoolExecutor(max_workers=max(1, min(jobs, len(fileNames)))) as executor:
-        tasks = [(folder, name, options) for name in fileNames]
-        for done, (name, error) in enumerate(executor.map(analyseOneFile, tasks), start=1):
-            if error:
-                failures.append(name)
-                click.echo(f"[{done}/{len(fileNames)}] {name} FAILED: {error}")
-            else:
-                click.echo(f"[{done}/{len(fileNames)}] {name}")
+    failures = analyseFiles(folder, fileNames, options, jobs)
     if failures:
         click.echo(f"{len(failures)} files failed: {', '.join(failures)}")
         raise SystemExit(1)
@@ -378,6 +359,143 @@ def plotOxygenFates(directory, folders, names, groups, title, output_dir):
 
     click.echo(f"Analyzing oxygen fate for {len(folderList)} molecules...")
     reportPlot(generateOxygenFates(folderList, nameList, groupList, title, finalOutputDir))
+
+
+@main_group.command()
+@click.argument("folder")
+@click.option("--config", "-c", "config_path", default=None, type=str,
+              help=f"TOML file with the options. Default: FOLDER/{CONFIG_FILE} if it exists, else the defaults.")
+@click.option("--write_config", is_flag=True,
+              help=f"Only write FOLDER/{CONFIG_FILE} with every option, its default and what it means, then stop.")
+def run(folder, config_path, write_config):
+    """Do the whole analysis of a folder: .mol files -> logs -> full_log.txt and plots -> flow charts -> report.html.
+
+    Logs that were already made with the same settings are kept. The options used are written to
+    FOLDER/breakdown_used.toml so the analysis can be repeated with --config.
+    """
+    if not os.path.isdir(folder):
+        raise click.ClickException(f"{folder} is not a folder.")
+    defaultPath = os.path.join(folder, CONFIG_FILE)
+    if write_config:
+        if os.path.exists(defaultPath):
+            raise click.ClickException(f"{defaultPath} already exists, edit it or delete it first.")
+        with open(defaultPath, 'w') as file:
+            file.write(f"# Options of 'breakdown run'. Empty strings, 0 and [] mean: read from the files / not used.\n\n"
+                       + formatConfig(defaultConfig()))
+        click.echo(f"Wrote {defaultPath}, edit it and run: breakdown run {folder}")
+        return
+    if config_path is None and os.path.exists(defaultPath):
+        config_path = defaultPath
+    try:
+        config = loadConfig(config_path)
+        click.echo(f"Options from {config_path}." if config_path else "No configuration file, using the defaults.")
+        runPipeline(folder, config)
+    except (ConfigError, ValueError) as error:
+        raise click.ClickException(str(error))
+
+
+@main_group.command()
+@click.option("--directory", "-d", required=True, type=str,
+              help="Base directory containing the folders.")
+@click.option("--folders", "-f", required=True, type=str,
+              help="Semicolon-separated names of the folders, each with full_log.txt.")
+@click.option("--names", "-n", default=None, type=str,
+              help="Semicolon-separated short labels for the folders, the folder names if not given.")
+@click.option("--largest_fragment/--whole_state", default=False,
+              help="Match states by their largest fragment only (C12H8 + H and C12H8 + H2 count as the same).")
+@click.option("--top", "-t", default=30, type=int,
+              help="Number of rows to print, the csv file has all of them.")
+@click.option("--output_dir", "-o", default="comparisons", type=str,
+              help="Folder name inside the base directory for the csv file.")
+def matchStates(directory, folders, names, largest_fragment, top, output_dir):
+    """Show which state names in different folders are the same structure (same connectivity).
+
+    State names are numbered by how common a state is in its own folder, so PHE_C5 at 15 eV and PHE_C5 at 20 eV
+    are usually different structures. This lines them up by connectivity key and writes DIR/OUTPUT_DIR/state_matches.csv.
+    """
+    import csv
+    from breakdown.state_keys import matchStates as match
+    folderNames = [f.strip() for f in folders.split(";")]
+    labels = [n.strip() for n in names.split(";")] if names else folderNames
+    if len(labels) != len(folderNames):
+        raise click.ClickException(f"{len(folderNames)} folders but {len(labels)} names.")
+    try:
+        rows = match([os.path.join(directory, f) for f in folderNames], labels, largest_fragment)
+    except ValueError as error:
+        raise click.ClickException(str(error))
+
+    def cell(states):
+        return ', '.join(f'{name} ({runs} runs)' for name, runs, _ in states) or '-'
+    outputFolder = os.path.join(directory, output_dir)
+    os.makedirs(outputFolder, exist_ok=True)
+    csvPath = os.path.join(outputFolder, 'state_matches.csv')
+    with open(csvPath, 'w', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow(['key', 'formula'] + [f'{label} {column}' for label in labels
+                                              for column in ('states', 'runs', 'steps')])
+        for row in rows:
+            values = [row['key'], row['formula']]
+            for label in labels:
+                states = row['states'][label]
+                values += [' '.join(name for name, _, _ in states), sum(s[1] for s in states), sum(s[2] for s in states)]
+            writer.writerow(values)
+    shared = sum(1 for row in rows if all(row['states'][label] for label in labels))
+    click.echo(f"{len(rows)} distinct {'largest fragments' if largest_fragment else 'states'}, "
+               f"{shared} found in every folder. Most common first:")
+    header = ['key', 'formula'] + labels
+    table = [header] + [[row['key'], row['formula']] + [cell(row['states'][l]) for l in labels] for row in rows[:top]]
+    widths = [max(len(r[i]) for r in table) for i in range(len(header))]
+    for line in table:
+        click.echo('  '.join(value.ljust(width) for value, width in zip(line, widths)).rstrip())
+    click.echo(f"Saved {csvPath}.")
+
+
+@main_group.command()
+@click.argument("folder")
+@click.argument("state")
+@click.option("--from_state", "-f", default=None, type=str,
+              help="Write the transitions from this state into STATE (a multi-frame xyz plus reactant and product) "
+                   "instead of one frame of STATE.")
+@click.option("--before", "-b", default=20, type=int,
+              help="Steps before the transition to write, at most to the start of the visit of FROM_STATE.")
+@click.option("--after", "-a", default=20, type=int,
+              help="Steps after the transition to write, at most to the end of the visit of STATE.")
+@click.option("--max_runs", "-n", default=5, type=int, help="Number of runs to take frames from.")
+@click.option("--largest_fragment", is_flag=True,
+              help="Only write the atoms of the largest fragment (for a transition, of its first or last frame).")
+@click.option("--output_dir", "-o", default=None, type=str, help="Where to write, FOLDER/frames by default.")
+def extractFrames(folder, state, from_state, before, after, max_runs, largest_fragment, output_dir):
+    """Write real MD geometries from the .mol files as .xyz, as starting points for DFT.
+
+    Without --from_state: for each run with STATE, the frame in the middle of its longest visit of STATE.
+    With --from_state A: for the first A -> STATE transition of each run, the frames around it (a first guess for a
+    NEB: the first frame is in A, the last in STATE). Needs the .mol files and their _log.txt files in FOLDER.
+    """
+    from breakdown.frame_extractor import FrameExtractor
+    try:
+        paths = FrameExtractor(folder, state, from_state, before, after, max_runs, largest_fragment,
+                               output_dir).extract()
+    except ValueError as error:
+        raise click.ClickException(str(error))
+    if not paths:
+        what = f"a {from_state} -> {state} transition" if from_state else state
+        raise click.ClickException(f"No run with {what} and its .mol file found in {folder}.")
+    for path in paths:
+        click.echo(f"Wrote {path}")
+
+
+@main_group.command()
+@click.argument("folder")
+@click.option("--max_states", "-n", default=100, type=int,
+              help="Number of states in the table, the most common by number of runs.")
+def makeReport(folder, max_states):
+    """Write FOLDER/report.html: a sortable table of the states with drawings, the transitions, final fragments,
+    settings and plots, in one file. Needs makechartsandstats to have been run."""
+    from breakdown.html_report import writeReport
+    try:
+        click.echo(f"Wrote {writeReport(folder, maxStates=max_states)}")
+    except ValueError as error:
+        raise click.ClickException(str(error))
 
 
 if __name__ == "__main__":

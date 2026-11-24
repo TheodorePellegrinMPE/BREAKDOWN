@@ -181,9 +181,39 @@ Useful extras: `--draw` makes a picture of every structure (`drawings/`), `--coo
 This creates in `~/try_it`: `full_log.txt` (all runs plus the statistics), `run_summary.json` (a small copy of the statistics that the
 comparison commands read), and a `plots/` folder. With a single run the statistics only illustrate the format, in real use the folder holds many runs (about 100) of one molecule.
 
-### Step 3 (optional): compare molecules, draw flow charts
+### Step 3: look at the report
 
-See the [command reference](#6-command-reference).
+```bash
+breakdown makereport ~/try_it
+```
+Open `~/try_it/report.html` in a web browser. It shows every structure with a drawing, how many runs reached it, how long they stayed,
+which structures it formed from and turned into, the most common transitions, the final fragments, the settings and all plots, in one file
+that you can copy or send on its own. Click a column heading to sort, type in the box to filter.
+
+### Step 4 (optional): compare molecules, flow charts, MD geometries for DFT
+
+See the [command reference](#6-command-reference): `makeflowcharts` draws routes, `matchstates` finds the same structure in folders of
+different energies (the names are numbered per folder), `extractframes` writes real MD geometries of a structure or a transition as `.xyz`.
+
+### All steps at once: `breakdown run`
+
+Once you know the steps, one command does steps 1 to 3 plus the flow charts:
+
+```bash
+breakdown run ~/try_it --write_config     # writes ~/try_it/breakdown.toml with every option, its default and what it means
+# edit breakdown.toml (for example molecule_name = "FLU", break_distance = 3.0)
+breakdown run ~/try_it                    # uses ~/try_it/breakdown.toml if it exists, else the defaults
+```
+Without a `breakdown.toml` the defaults are used and the structures are named after the folder. The file has the sections
+`[analysis]` (the options of `analysedemonfolder`), `[statistics]` (of `makechartsandstats`), `[flowcharts]` and `[report]`.
+An empty string, `0` or `[]` means "read it from the files" or "not used". A misspelled option is an error, not silently ignored.
+
+- A `.mol` file whose `_log.txt` is complete and was made with the same bond settings is not analysed again, so a second `run` is quick.
+  Change `break_distance` and the logs are made again, old and new settings are never mixed. `reanalyse = true` redoes all of them.
+- The options that were used, with the names and start state that were picked, are written to `breakdown_used.toml`.
+  `breakdown run ~/try_it --config ~/try_it/breakdown_used.toml` repeats exactly that analysis, and you can keep the file with your results.
+- The flow charts are skipped with a message when Graphviz is not installed. They start from the structure most runs start in.
+  Set `draw = true` under `[statistics]` to have the drawings in them.
 
 ---
 
@@ -199,6 +229,9 @@ See the [command reference](#6-command-reference).
 | `plots/` | Figures, see below. |
 | `drawings/`, `coordinates/` | Pictures and `.xyz` files of the structures (only with `--draw` / `--coordinates`). |
 | `transitionGraphs/` | Flow charts from `makeflowcharts`. |
+| `report.html` | Overview page from `makereport` (or `run`), opens in a web browser. |
+| `frames/` | `.xyz` files of MD geometries from `extractframes`. |
+| `breakdown_used.toml` | The options of the last `breakdown run`, to repeat it. |
 
 ### The statistics blocks at the end of `full_log.txt`
 
@@ -217,6 +250,8 @@ The block `Automatically generated molecule names.` translates names back to SMI
 | Runs containing original functional group ... at step | Only with `-f`: for each step, in how many runs the group is still there. |
 | Runs with each oxygen/sulfur in each final group and/or fragment | Only with `-f`: where the heteroatom ended up. `other` means none of the tracked groups. |
 | First step of each event type in each run | For every run, the first step of an isomerization, fragmentation, recombination and of any change, and the last step. `null` means it never happened. |
+| Connectivity key of each molecule state | For every structure a key (12 characters) that only depends on which atoms are bonded, so it is the same in every folder: `{"FLU_A3": {"key": ..., "largestFragmentKey": ..., "formula": "C13H9 + H", "largestFragmentFormula": "C13H9"}}`. Use it, not the name, to find a structure in another folder (`matchstates`). |
+| States visited in each run, by the step they were entered | For every run, the structures in the order they were visited: `{"deMon_7.mol": {"0": "FLU_A11", "79": "FLU_A10", ...}}`. A structure visited twice appears twice. |
 | Settings used for these results | The last block: the version of the program, the settings the runs were analysed with (bond distances, minimum lifetime, elements) and the options of `makechartsandstats`. See [section 11](#11-running-many-simulations-on-a-cluster). |
 
 ### The plots in `plots/`
@@ -288,6 +323,10 @@ Examples: `breakdown makeflowcharts ~/try_it FLU_A1`, `breakdown makechartsandst
 | `comparefirstevents -d DIR -f "mol1;mol2" -n "A;B" -e fragmentation` | Survival curves of several molecules in one plot. `-e` is `anyChange`, `isomerization`, `fragmentation` or `recombination`. |
 | `plotoxygenfates -d DIR -f "mol1;mol2" -n "A;B" -g "ketone;hydroxyl"` | Pie charts of where the oxygen went in runs that lost the starting group. |
 | `makeenergiestable FOLDER` | Table of the DFTB electronic energies in the `.out` files of *optimizations* (not of MD runs). **Do not use these energies for results, see the warning below.** |
+| `run FOLDER` | The whole analysis (`analysedemonfolder`, `makechartsandstats`, flow charts, `makereport`) with the options from `FOLDER/breakdown.toml`, see [All steps at once](#all-steps-at-once-breakdown-run). `--write_config` writes that file with every option, `-c FILE` uses another file. |
+| `makereport FOLDER` | Writes `FOLDER/report.html`, one page with the structures (drawings, runs, time, parents and children), transitions, final fragments, plots and settings. `-n 300` puts 300 structures in the table (default 100, the most common by number of runs). |
+| `matchstates -d DIR -f "15ev;20ev" -n "15;20"` | Lines up the structures of several folders by their connectivity key: which name in one folder is which name in the other. Prints the most common (`-t 50` for more rows) and writes all to `DIR/comparisons/state_matches.csv`. `--largest_fragment` matches by the largest fragment only, so `C12H8 + H` and `C12H8 + H2` count as the same. |
+| `extractframes FOLDER STATE` | Writes real MD geometries as `.xyz` into `FOLDER/frames/`, as starting points for DFT (better than the force-field `--coordinates`). For each run with `STATE` (at most `-n 5` runs), the frame in the middle of its longest visit. With `-f OTHER_STATE`, for the first `OTHER_STATE` → `STATE` transition of each run, the frames from `-b 20` steps before to `-a 20` steps after it as one multi-frame `.xyz` (a first guess for a NEB), plus `_reactant.xyz` and `_product.xyz`: the first frame is always in `OTHER_STATE`, the last in `STATE`. `--largest_fragment` leaves out the atoms of the other fragments. Needs the `.mol` files next to their `_log.txt` files. The bonds of the frames are checked against the log, a warning means the `.mol` file or the settings do not match. |
 | `optimizeisomer FOLDER NAME` | Optimizes the geometry of a structure with deMon-Nano (DFTB), only for structures in `visited_states.txt` (needs the deMon executable `deMon.static-website.x` in the folder, and the structure as `NAME.xyz`). The input it writes assumes charge +1 and multiplicity 2. **See the warning below.** |
 
 > **Warning: DFTB is not accurate enough for energies and optimized geometries.** The simulations (and `optimizeisomer` and `makeenergiestable`, which use the same
@@ -354,13 +393,14 @@ hydrogens to every atom with a missing bond. Use `breakdown.molecule_utils.molec
 
 ```bash
 pip install -e . && pip install pytest
-pytest                                  # unit tests plus synthetic molecules (about 50 tests, a few seconds)
+pytest                                  # unit tests plus synthetic molecules (about 80 tests, under half a minute)
 ```
 
 - `CLAUDE.md` and `.agent/skills/` explain the structure of the code, how to test it against the example data, how the SMILES/bond-order design works
   and which files to touch when adding a functional group, statistic, plot or command. They are written for AI coding agents, but are a good guide for people too.
 - `tools/compare_logs.py new_log.txt reference_log.txt` compares two run logs by event and by bonded graph.
 - Source layout: `src/breakdown/` (one module per job, `main.py` holds only the command line), tests in `tests/`.
+- `breakdown.state_keys.stateKey(smiles)` gives the connectivity key of any SMILES made by this program, for matching structures in your own scripts.
 
 ---
 

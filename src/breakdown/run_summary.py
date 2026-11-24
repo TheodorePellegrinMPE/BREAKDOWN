@@ -32,6 +32,8 @@ BLOCKS = {
     'groupSteps': 'Runs containing original functional group {group} at step.',
     'endingGroups': 'Runs with each {heteroatom} in each final group and/or fragment.',
     'firstEvents': 'First step of each event type in each run.',
+    'stateKeys': 'Connectivity key of each molecule state.',
+    'runSequences': 'States visited in each run, by the step they were entered.',
     'settings': 'Settings used for these results.',
 }
 HETEROATOM_NAMES = {'O': 'oxygen', 'S': 'sulfur'}

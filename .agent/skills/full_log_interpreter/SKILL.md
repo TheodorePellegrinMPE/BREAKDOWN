@@ -149,9 +149,17 @@ strings as delimiters):
 | 10 (optional) | `Runs containing original functional group <group> at step.` | `{ "<step_int>": <int>, ... }` |
 | 11 (optional) | `Runs with each <heteroatom> in each final group and/or fragment.` | `{ "<desc>": <int>, ... }` |
 | 12 | `First step of each event type in each run.` | `{ "<file>.mol": {"isomerization": <step or null>, "fragmentation": ..., "recombination": ..., "anyChange": ..., "lastStep": <int>} }` (newer versions only) |
-| 13 | `Settings used for these results.` | `{ "program": {version, git commit, rdkit, python}, "analysis": [distinct settings of the runs], "analysisConsistent": bool, "runsWithoutRecordedSettings": int, "statistics": {options of makechartsandstats}, "created": date }` (newer versions only, last block) |
+| 13 | `Connectivity key of each molecule state.` | `{ "<name>": {"key": "<12 hex>", "largestFragmentKey": "<12 hex>", "formula": "C13H9 + H", "largestFragmentFormula": "C13H9"} }` (newer versions only) |
+| 14 | `States visited in each run, by the step they were entered.` | `{ "<file>.mol": { "<step>": "<name>", ... } }`: step 0 and every step with an event, in order (newer versions only) |
+| 15 | `Settings used for these results.` | `{ "program": {version, git commit, rdkit, python}, "analysis": [distinct settings of the runs], "analysisConsistent": bool, "runsWithoutRecordedSettings": int, "statistics": {options of makechartsandstats}, "created": date }` (newer versions only, last block) |
 
 > Blocks 10 and 11 only exist when `functionalGroup` was set during analysis.
+
+State names are numbered per folder, so the same name in two folders is usually a different structure. Match states
+between folders (energies, settings) by `key` from block 13, never by name. For older files without block 13,
+`breakdown.state_keys.loadStateKeys(folder)` computes the keys from block 1. `breakdown.state_keys.stateKey(smiles)`
+gives the key of any SMILES made by breakdown. Block 14 gives each run's route through the states, use it instead of
+streaming the run data when you only need the order of states.
 
 #### Isomer Naming Convention
 Isomers are automatically named with the pattern:

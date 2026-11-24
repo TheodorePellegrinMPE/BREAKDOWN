@@ -3,6 +3,7 @@ from collections import Counter
 from breakdown.isomer_drawer import IsomerDrawer
 from breakdown.coordinates_file_maker import CoordinatesFileMaker
 from breakdown.auto_detect_utils import calculateNominalMass, countAtoms, getFragmentNames, processSmileToFragment
+from breakdown.state_keys import makeStateKeys
 
 OXYGEN_GROUPS = ['hydroxyl', 'ketone', 'ketene', 'ether', 'aldehyde', 'carboxyl', 'epoxide']
 SULFUR_GROUPS = ['thiol', 'thioketone', 'thioaldehyde', 'thioether', 'thiirane', 'disulfide']
@@ -36,6 +37,8 @@ class IsomerDicts:
         self.isomerChemicalNames = self.createIsomerChemicalNames()
         self.isomerMasses = self.createIsomerMassDict()
         self.firstEvents = self.createFirstEventStats()
+        self.stateKeys = makeStateKeys(self.isomerNames)
+        self.runSequences = self.createRunSequences()
         if self.groupName is not None:
             self.groupSteps = self.createFunctionalGroupStats()
             self.endingGroups = self.createGroupEndingStats()
@@ -176,6 +179,23 @@ class IsomerDicts:
             firstEvents[run.name] = record
         return firstEvents
 
+    def createRunSequences(self):
+        """For every run, the states it went through in order: step 0 and every step with an event.
+
+        Returns:
+            dict: File name of the run to {step as a string: state name}, in step order. A state seen
+            twice in a run appears at every step it was entered again.
+        """
+        runSequences = {}
+        for run in self.runs:
+            sequence = {}
+            for index, (step, event, smiles, _) in enumerate(run.steps):
+                if index == 0 or event:
+                    sequence[str(step)] = self.isomerNames[smiles]
+            if sequence:
+                runSequences[run.name] = sequence
+        return runSequences
+
     def createIsomerRunsStats(self):
         """Create a dictionary with all SMILES strings in the file as keys and
         the number of runs in which the isomer occurs as values.
@@ -250,6 +270,9 @@ class IsomerDicts:
         statistics = {'isomerNames': self.isomerNames}
         for key in keys:
             statistics[key] = self.replaceWithMolNames(getattr(self, key))
+        # Already keyed by state and run names
+        statistics['stateKeys'] = self.stateKeys
+        statistics['runSequences'] = self.runSequences
         return statistics
 
     def replaceWithMolNames(self, stats):

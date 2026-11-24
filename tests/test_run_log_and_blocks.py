@@ -53,6 +53,8 @@ def test_block_headings_never_change():
         'Runs containing original functional group {group} at step.',
         'Runs with each {heteroatom} in each final group and/or fragment.',
         'First step of each event type in each run.',
+        'Connectivity key of each molecule state.',
+        'States visited in each run, by the step they were entered.',
         'Settings used for these results.',
     ]
     assert getHeadings('endingGroups') == ['Runs with each oxygen in each final group and/or fragment.',

@@ -16,6 +16,7 @@ rdkit = "^2023.9.2"
 openpyxl = "^3.1.2"
 networkx = "^3.2.1"
 graphviz = "^0.20.1"
+tomli = { version = "^2.0.1", python = "<3.11" }
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
